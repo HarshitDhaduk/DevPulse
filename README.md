@@ -20,57 +20,61 @@ DevPulse uses a modern, serverless-friendly architecture built on Next.js, FastA
 ```mermaid
 graph TD
     %% Define Styles
-    classDef frontend fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
-    classDef backend fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
-    classDef data fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
-    classDef external fill:#6b7280,stroke:#374151,stroke-width:2px,color:#fff;
-    classDef ai fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff;
+    classDef client fill:#0f172a,stroke:#334155,stroke-width:2px,color:#fff;
+    classDef frontend fill:#2563eb,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef backend fill:#059669,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef db fill:#0f766e,stroke:#0f766e,stroke-width:2px,color:#fff;
+    classDef engine fill:#d97706,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef saas fill:#475569,stroke:#334155,stroke-width:2px,color:#fff;
+    classDef ai fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#fff;
 
-    %% Nodes
-    Client([Web Client / Browser])
+    Client([🌐 Web Client / Browser]):::client
     
-    subgraph Frontend [Next.js Frontend]
-        UI[React Components & UI]
-        Auth[OAuth Flows]
-        Dash[Dashboards & Charts]
+    subgraph Frontend ["🖥️ Next.js Frontend"]
+        direction LR
+        FE_Dash["📊 Dashboards & UI"]:::frontend
+        FE_Auth["🔐 OAuth Flows"]:::frontend
     end
     
-    subgraph Backend [FastAPI Backend]
-        API[REST API Routes]
-        Session[Session Management]
-        DB[(SQLite DB - Encrypted Tokens)]
-        Agent[Gemini AI Agent]
+    subgraph Backend ["⚙️ FastAPI Backend"]
+        direction TB
+        BE_API["🔌 REST API Routes"]:::backend
+        BE_Agent["🤖 Gemini AI Agent"]:::backend
+        BE_DB[("🗄️ SQLite DB<br/>(Encrypted Tokens)")]:::db
+        
+        BE_API <--> BE_DB
+        BE_API <--> BE_Agent
     end
     
-    subgraph Engine [Data Engine]
-        Coral[Coral MCP Binary]
+    subgraph DataEngine ["🚀 Data Engine"]
+        Coral["🐙 Coral MCP Binary"]:::engine
     end
     
-    subgraph ThirdParty [SaaS Integrations]
-        GH(GitHub API):::external
-        LN(Linear API):::external
-        SL(Slack API):::external
-        SN(Sentry API):::external
+    subgraph SaaS ["☁️ SaaS Integrations"]
+        direction LR
+        GH("GitHub"):::saas
+        LN("Linear"):::saas
+        SL("Slack"):::saas
+        SN("Sentry"):::saas
     end
     
-    %% AI Model
-    LLM{{Google Gemini LLM}}:::ai
+    LLM{{"🧠 Google Gemini API"}}:::ai
 
-    %% Connections
-    Client <-->|HTTPS| Frontend:::frontend
-    Frontend <-->|REST API| API:::backend
-    Auth -->|Stores Tokens| API
+    %% Core Connections
+    Client ===|HTTPS| FE_Dash
+    Client ===|Auth| FE_Auth
     
-    API <--> Session:::backend
-    Session <--> DB:::backend
+    FE_Dash <==>|REST API| BE_API
+    FE_Auth ==>|Store Tokens| BE_API
     
-    API <-->|Context & Questions| Agent:::backend
-    Agent <-->|Prompts & SQL generation| LLM
+    BE_Agent <==>|Prompts & SQL Gen| LLM
+    BE_Agent <==>|Execute SQL| Coral
+    BE_API <==>|Direct SQL| Coral
     
-    Agent <-->|Executes SQL| Coral:::data
-    API <-->|Direct SQL queries| Coral
-    
-    Coral <-->|Translates SQL to REST/GraphQL| ThirdParty
+    Coral <==>|Federated Queries| GH
+    Coral <==>|Federated Queries| LN
+    Coral <==>|Federated Queries| SL
+    Coral <==>|Federated Queries| SN
 ```
 
 ## 🔄 Data Flow
