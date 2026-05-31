@@ -118,6 +118,10 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
     slack_channels: { name: string }[];
     linear_teams: { key: string; name: string }[];
   } | null>(null);
+  const [integrations, setIntegrations] = useState<{
+    has_github: boolean; has_linear: boolean; has_slack: boolean; has_sentry: boolean;
+    connected_count: number; total: number;
+  } | null>(null);
 
   // Chat Panel States
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
@@ -185,41 +189,45 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
       try {
         const data = await api.get("/api/workflows/discover");
         setDiscovery(data);
+        if (data.integrations) setIntegrations(data.integrations);
         
-        setVariables((prev) => {
-          const next = { ...prev };
-          
-          if (data.github_repos?.length > 0) {
-            const currentFullName = `${next.owner}/${next.repo}`;
-            const isValid = data.github_repos.some((r: any) => r.full_name === currentFullName);
-            if (!isValid) {
-              const firstRepo = data.github_repos[0];
-              next.owner = firstRepo.owner;
-              next.repo = firstRepo.name;
+        // Only populate variables if the user actually has integrations connected
+        if (data.integrations?.connected_count > 0) {
+          setVariables((prev) => {
+            const next = { ...prev };
+            
+            if (data.github_repos?.length > 0) {
+              const currentFullName = `${next.owner}/${next.repo}`;
+              const isValid = data.github_repos.some((r: any) => r.full_name === currentFullName);
+              if (!isValid) {
+                const firstRepo = data.github_repos[0];
+                next.owner = firstRepo.owner;
+                next.repo = firstRepo.name;
+              }
+            } else if (data.github_owner) {
+               if (!next.owner) next.owner = data.github_owner;
             }
-          } else if (data.github_owner) {
-             if (!next.owner) next.owner = data.github_owner;
-          }
-          
-          if (data.slack_channels?.length > 0) {
-            if (!next.slack_channel || !data.slack_channels.some((c: any) => c.name === next.slack_channel)) {
-              next.slack_channel = data.slack_channels[0].name;
+            
+            if (data.slack_channels?.length > 0) {
+              if (!next.slack_channel || !data.slack_channels.some((c: any) => c.name === next.slack_channel)) {
+                next.slack_channel = data.slack_channels[0].name;
+              }
             }
-          }
-          
-          if (data.linear_teams?.length > 0) {
-            if (!next.team_key || !data.linear_teams.some((t: any) => t.key === next.team_key)) {
-              next.team_key = data.linear_teams[0].key;
-              next.team_name = data.linear_teams[0].name;
+            
+            if (data.linear_teams?.length > 0) {
+              if (!next.team_key || !data.linear_teams.some((t: any) => t.key === next.team_key)) {
+                next.team_key = data.linear_teams[0].key;
+                next.team_name = data.linear_teams[0].name;
+              }
             }
-          }
-          
-          if (data.sentry_org) {
-             next.sentry_org = data.sentry_org;
-          }
-          
-          return next;
-        });
+            
+            if (data.sentry_org) {
+               next.sentry_org = data.sentry_org;
+            }
+            
+            return next;
+          });
+        }
       } catch (err) {
         console.warn("Discovery load failed:", err);
       } finally {
@@ -411,7 +419,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
           </button>
           <button
             onClick={() => setShowQueryApproval(true)}
-            disabled={loading || isDiscovering}
+            disabled={loading || isDiscovering || (integrations !== null && integrations.connected_count === 0)}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs rounded-lg bg-teal hover:bg-teal2 disabled:opacity-50 disabled:cursor-not-allowed font-bold transition-colors text-white"
           >
             ⚡ Run Analysis
@@ -727,21 +735,70 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
       {!loading && !runResult && (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4">
-          <div className="text-5xl animate-bounce">{spec.icon}</div>
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold font-display text-text">Initialize {spec.name} Workspace</h2>
-            <p className="text-xs text-text3 max-w-sm leading-relaxed">
-              Verify your template variables in the panel above and click Run Analysis. 
-              DevPulse will fetch live SQL tables from Coral and start the AI session.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowQueryApproval(true)}
-            disabled={loading || isDiscovering}
-            className="px-6 py-2.5 rounded-lg bg-coral hover:bg-coral2 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-xs transition-colors text-white glow-coral"
-          >
-             ⚡ Run Initial Analysis
-          </button>
+          {integrations !== null && integrations.connected_count === 0 ? (
+            /* No integrations connected — prompt user to connect tools */
+            <>
+              <div className="text-5xl">🔗</div>
+              <div className="space-y-2 max-w-md">
+                <h2 className="text-lg font-bold font-display text-text">Connect Your Tools</h2>
+                <p className="text-xs text-text3 leading-relaxed">
+                  You haven't connected any integrations yet. DevPulse needs at least one tool (GitHub, Linear, Sentry, or Slack) to fetch data for this workspace.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                {[
+                  { name: "GitHub", icon: "⬡", connected: integrations.has_github },
+                  { name: "Linear", icon: "◈", connected: integrations.has_linear },
+                  { name: "Sentry", icon: "◎", connected: integrations.has_sentry },
+                  { name: "Slack", icon: "💬", connected: integrations.has_slack },
+                ].map((tool) => (
+                  <div
+                    key={tool.name}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono ${
+                      tool.connected
+                        ? "border-green-500/30 bg-green-500/10 text-green-400"
+                        : "border-border2 bg-bg3 text-text3"
+                    }`}
+                  >
+                    <span>{tool.icon}</span>
+                    <span>{tool.name}</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${tool.connected ? "bg-green-400" : "bg-text3"}`} />
+                  </div>
+                ))}
+              </div>
+              <Link
+                href="/settings"
+                className="mt-4 px-6 py-2.5 rounded-lg bg-coral hover:bg-coral2 font-bold text-xs transition-colors text-white glow-coral flex items-center gap-2"
+              >
+                ⚙️ Go to Settings & Connect Tools
+              </Link>
+            </>
+          ) : (
+            /* User has at least one integration — show normal init state */
+            <>
+              <div className="text-5xl animate-bounce">{spec.icon}</div>
+              <div className="space-y-1">
+                <h2 className="text-lg font-bold font-display text-text">Initialize {spec.name} Workspace</h2>
+                <p className="text-xs text-text3 max-w-sm leading-relaxed">
+                  Verify your template variables in the panel above and click Run Analysis. 
+                  DevPulse will fetch live SQL tables from Coral and start the AI session.
+                </p>
+                {integrations && integrations.connected_count < integrations.total && (
+                  <p className="text-[11px] text-devyellow font-mono mt-2">
+                    ⚠️ {integrations.connected_count}/{integrations.total} integrations connected.{" "}
+                    <Link href="/settings" className="underline hover:text-devyellow/80">Connect more →</Link>
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowQueryApproval(true)}
+                disabled={loading || isDiscovering}
+                className="px-6 py-2.5 rounded-lg bg-coral hover:bg-coral2 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-xs transition-colors text-white glow-coral"
+              >
+                 ⚡ Run Initial Analysis
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

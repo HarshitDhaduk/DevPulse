@@ -51,46 +51,66 @@ from services.auth import get_current_user
 
 @router.get("/workflows/discover")
 async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
-    repos = []
-    try:
-        rows = await coral.query("SELECT name, full_name FROM github.user_repos LIMIT 50")
-        if isinstance(rows, list):
-            for row in rows:
-                name = row.get("name", "")
-                full_name = row.get("full_name", "")
-                owner = full_name.split("/")[0] if "/" in full_name else "wemakedev"
-                repos.append({"name": name, "owner": owner, "full_name": full_name})
-    except Exception as e:
-        log.warning("Discovery [github.user_repos] failed: %s", e)
-
-    channels = []
-    try:
-        rows = await coral.query("SELECT name FROM slack.channels LIMIT 50")
-        if isinstance(rows, list):
-            for row in rows:
-                channels.append({"name": row.get("name", "")})
-    except Exception as e:
-        log.warning("Discovery [slack.channels] failed: %s", e)
-
-    teams = []
-    try:
-        rows = await coral.query("SELECT key, name FROM linear.teams LIMIT 50")
-        if isinstance(rows, list):
-            for row in rows:
-                teams.append({"key": row.get("key", ""), "name": row.get("name", "")})
-    except Exception as e:
-        log.warning("Discovery [linear.teams] failed: %s", e)
-
     from routers.settings import get_user_tokens
     user_id = user["id"]
     tokens = await get_user_tokens(user_id)
+
+    # Determine which integrations the user has actually connected
+    has_github = bool(tokens.get("GITHUB_TOKEN"))
+    has_linear = bool(tokens.get("LINEAR_API_KEY"))
+    has_slack = bool(tokens.get("SLACK_TOKEN"))
+    has_sentry = bool(tokens.get("SENTRY_TOKEN"))
+
+    connected_count = sum([has_github, has_linear, has_slack, has_sentry])
+
+    # Only query Coral for sources the current user has tokens for
+    repos = []
+    if has_github:
+        try:
+            rows = await coral.query("SELECT name, full_name FROM github.user_repos LIMIT 50")
+            if isinstance(rows, list):
+                for row in rows:
+                    name = row.get("name", "")
+                    full_name = row.get("full_name", "")
+                    owner = full_name.split("/")[0] if "/" in full_name else ""
+                    repos.append({"name": name, "owner": owner, "full_name": full_name})
+        except Exception as e:
+            log.warning("Discovery [github.user_repos] failed: %s", e)
+
+    channels = []
+    if has_slack:
+        try:
+            rows = await coral.query("SELECT name FROM slack.channels LIMIT 50")
+            if isinstance(rows, list):
+                for row in rows:
+                    channels.append({"name": row.get("name", "")})
+        except Exception as e:
+            log.warning("Discovery [slack.channels] failed: %s", e)
+
+    teams = []
+    if has_linear:
+        try:
+            rows = await coral.query("SELECT key, name FROM linear.teams LIMIT 50")
+            if isinstance(rows, list):
+                for row in rows:
+                    teams.append({"key": row.get("key", ""), "name": row.get("name", "")})
+        except Exception as e:
+            log.warning("Discovery [linear.teams] failed: %s", e)
 
     return {
         "github_repos": repos,
         "slack_channels": channels,
         "linear_teams": teams,
-        "sentry_org": tokens.get("SENTRY_ORG") or getattr(settings, "SENTRY_ORG", ""),
-        "github_owner": tokens.get("GITHUB_OWNER") or getattr(settings, "GITHUB_OWNER", "")
+        "sentry_org": tokens.get("SENTRY_ORG", ""),
+        "github_owner": tokens.get("GITHUB_OWNER", ""),
+        "integrations": {
+            "has_github": has_github,
+            "has_linear": has_linear,
+            "has_slack": has_slack,
+            "has_sentry": has_sentry,
+            "connected_count": connected_count,
+            "total": 4,
+        },
     }
 
 def get_friendly_error_message(e: Exception) -> str:
