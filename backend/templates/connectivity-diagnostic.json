@@ -1,0 +1,136 @@
+{
+  "id": "connectivity-diagnostic",
+  "name": "Connectivity Diagnostic",
+  "description": "An introductory template executing harmless, lightweight queries to check active credentials, schemas, and API scoping on all 4 sources.",
+  "icon": "\ud83d\udd0c",
+  "category": "Diagnostics",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    }
+  ],
+  "queries": [
+    {
+      "id": "coral_schemas",
+      "label": "Coral Catalog Schemas",
+      "sql": "SELECT SCHEMA_NAME,\n       COUNT(*) AS table_count\nFROM coral.tables\nGROUP BY SCHEMA_NAME",
+      "optional": false
+    },
+    {
+      "id": "github_ping",
+      "label": "GitHub API Scopes",
+      "sql": "SELECT name,\n       full_name\nFROM github.user_repos\nLIMIT 1",
+      "optional": true
+    },
+    {
+      "id": "linear_ping",
+      "label": "Linear API Check",
+      "sql": "SELECT name,\n       email\nFROM linear.users\nLIMIT 1",
+      "optional": true
+    },
+    {
+      "id": "slack_ping",
+      "label": "Slack Scopes Ping",
+      "sql": "SELECT name,\n       num_members\nFROM slack.channels\nLIMIT 1",
+      "optional": true
+    },
+    {
+      "id": "sentry_ping",
+      "label": "Sentry Token Ping",
+      "sql": "SELECT title\nFROM sentry.issues\nLIMIT 1",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Integration Diagnostic Agent",
+    "system_prompt": "You are a Diagnostic Assistant. Evaluate the connectivity datasets, confirm that APIs are returning clean payloads, and highlight any connection timeouts or scope failures.",
+    "synthesis_prompt": "Examine if any of the pings failed or came back empty. Provide a checklist showing which of the four systems are CONNECTED or DISCONNECTED. List recommendations if credentials lack required scopes.",
+    "temperature": 0.0,
+    "required_sections": [
+      "System Check Summary",
+      "API Status Checklist",
+      "Troubleshooting Guide"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "System Connectivity Report",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "diagnostics",
+        "title": "Integration Integrity Status",
+        "type": "status_grid",
+        "data_source": "coral_schemas",
+        "layout": {
+          "col_span": 12,
+          "order": 2
+        },
+        "config": {
+          "label_key": "schema_name",
+          "status_key": "table_count",
+          "success_values": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ]
+        }
+      },
+      {
+        "id": "schema_table",
+        "title": "Tables Discovered in Coral Catalog",
+        "type": "table",
+        "data_source": "coral_schemas",
+        "layout": {
+          "col_span": 12,
+          "order": 3
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "schema_name",
+              "header": "Connector Source",
+              "type": "text"
+            },
+            {
+              "key": "table_count",
+              "header": "Available Tables Count",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

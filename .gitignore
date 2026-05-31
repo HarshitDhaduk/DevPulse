@@ -1,0 +1,12 @@
+# DevPulse Root Ignore
+/docs
+/coral-bin
+.vscode/
+
+# Other standard ignores
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local

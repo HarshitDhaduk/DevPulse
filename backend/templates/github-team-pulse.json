@@ -1,0 +1,155 @@
+{
+  "id": "github-team-pulse",
+  "name": "GitHub Team Pulse",
+  "description": "Code contribution dashboard mapping PR review cycles, stale queues, and active commit distribution patterns.",
+  "icon": "\ud83d\udc19",
+  "category": "Management",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    },
+    {
+      "name": "slack_channel",
+      "type": "string",
+      "default": "engineering",
+      "description": "Slack engineering channel"
+    }
+  ],
+  "queries": [
+    {
+      "id": "active_prs",
+      "label": "Contribution PR Activity",
+      "sql": "SELECT title AS pr_title,\n       state AS pr_status,\n       user__login AS author,\n       created_at,\n       html_url AS pr_url,\n       draft\nFROM github.pulls\nWHERE OWNER = '{owner}'\n  AND repo = '{repo}'\nORDER BY created_at DESC\nLIMIT 30",
+      "optional": false
+    },
+    {
+      "id": "stale_prs",
+      "label": "Awaiting Reviews Queue",
+      "sql": "SELECT title AS pr_title,\n       user__login AS author,\n       created_at\nFROM github.pulls\nWHERE OWNER = '{owner}'\n  AND repo = '{repo}'\n  AND state = 'open'\n  AND draft = FALSE\nORDER BY created_at ASC\nLIMIT 10",
+      "optional": false
+    },
+    {
+      "id": "committers",
+      "label": "Author Commit Volumetrics",
+      "sql": "SELECT commit__author__name AS name,\n       COUNT(*) AS commit_count\nFROM github.commits\nWHERE owner = '{owner}' AND repo = '{repo}'\nGROUP BY commit__author__name\nORDER BY commit_count DESC",
+      "optional": true
+    },
+    {
+      "id": "pr_discussions",
+      "label": "PR Discussions in Slack",
+      "sql": "SELECT u.real_name AS author, m.text\nFROM slack.messages(channel := '{slack_channel_id}') m\nLEFT JOIN slack.users u ON m.user_id = u.id\nWHERE m.text LIKE '%PR%' OR m.text LIKE '%review%'\nORDER BY m.ts DESC\nLIMIT 10",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Engineering Manager",
+    "system_prompt": "You are a supportive Engineering Manager. Highlight collaboration patterns, ensure developers aren't siloed, call out PR bottlenecks, and praise frequent contributors.",
+    "synthesis_prompt": "Review the commit distribution and stale PRs. Deliver an analytical report describing overall developer flow, team bottlenecks, and distribution warnings.",
+    "temperature": 0.3,
+    "required_sections": [
+      "Team Velocity Overview",
+      "Contributor Distribution",
+      "Review Stalls",
+      "Actionable Guidance"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Team Pulse Review",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "contributors_chart",
+        "title": "Commit Volume by Author",
+        "type": "chart_bar",
+        "data_source": "committers",
+        "layout": {
+          "col_span": 6,
+          "order": 2
+        },
+        "config": {
+          "x_axis": "name",
+          "series": [
+            {
+              "key": "commit_count",
+              "name": "Commits",
+              "color": "#00F2FE"
+            }
+          ]
+        }
+      },
+      {
+        "id": "stale_table",
+        "title": "Stale Awaiting Reviews Queue",
+        "type": "table",
+        "data_source": "stale_prs",
+        "layout": {
+          "col_span": 6,
+          "order": 3
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "pr_title",
+              "header": "Pull Request Name",
+              "type": "text"
+            },
+            {
+              "key": "author",
+              "header": "Owner",
+              "type": "text"
+            },
+            {
+              "key": "created_at",
+              "header": "Opened",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "pr_discussions_widget",
+        "title": "Slack PR Chatter",
+        "type": "table",
+        "data_source": "pr_discussions",
+        "layout": {
+          "col_span": 6,
+          "order": 7
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "author",
+              "header": "Author",
+              "type": "text"
+            },
+            {
+              "key": "text",
+              "header": "Message",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

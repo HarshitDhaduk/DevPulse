@@ -1,0 +1,234 @@
+{
+  "id": "junior-pr-coach",
+  "name": "PR Readiness Coach",
+  "description": "Interactive onboarding companion helping junior developers draft professional PR descriptions, locate file code owners, and sync dev Slack channels.",
+  "icon": "\u2728",
+  "category": "Diagnostics",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    },
+    {
+      "name": "target_file",
+      "type": "string",
+      "default": "main",
+      "description": "Target module keyword (e.g., main, auth, router)"
+    },
+    {
+      "name": "issue_id",
+      "type": "string",
+      "default": "DEV-123",
+      "description": "Linear Issue ID (Optional)"
+    }
+  ],
+  "queries": [
+    {
+      "id": "file_owners",
+      "label": "Top File Contributors",
+      "sql": "SELECT commit__author__name AS author,\n       COUNT(*) AS commit_count,\n       MAX(commit__author__date) AS last_modified\nFROM github.commits\nWHERE owner = '{owner}' AND repo = '{repo}'\n  AND commit__message ILIKE '%{target_file}%'\nGROUP BY commit__author__name\nORDER BY commit_count DESC\nLIMIT 5",
+      "optional": true
+    },
+    {
+      "id": "active_slack_channels",
+      "label": "Sync Slack Channels",
+      "sql": "SELECT name,\n       topic,\n       num_members\nFROM slack.channels\nWHERE name ILIKE '%dev%'\n  OR name ILIKE '%eng%'\n  OR name ILIKE '%general%'\nORDER BY num_members DESC\nLIMIT 5",
+      "optional": true
+    },
+    {
+      "id": "recent_prs",
+      "label": "Reference Pull Requests",
+      "sql": "SELECT title AS pr_title,\n       html_url AS pr_url,\n       user__login AS pr_author,\n       created_at\nFROM github.pulls\nWHERE OWNER = '{owner}'\n  AND repo = '{repo}'\n  AND state = 'closed'\nORDER BY created_at DESC\nLIMIT 5",
+      "optional": true
+    },
+    {
+      "id": "linear_context",
+      "label": "Linear Issue Details",
+      "sql": "SELECT title, description, state_name FROM linear.issues WHERE identifier = '{issue_id}' LIMIT 1",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "PR Readiness Coach",
+    "system_prompt": "You are the PR Readiness Coach, a friendly and supportive AI mentor for junior software engineers. Your goal is to guide junior developers, help them submit professional code reviews, and navigate the codebase confidently. Be encouraging, clear, and step-by-step.",
+    "synthesis_prompt": "Review the commit distribution, active channels, and merged PR patterns. Generate a PR Readiness Guide containing: 1) A beautifully drafted, professional PR Title and bulleted Description based on recent commits 2) Recommended Reviewers (senior devs) from top committers list with explanation 3) Slack Dev Channel guidance 4) A friendly Pre-Flight Checklist (run lint, tests, verify code guidelines). Also integrate the Linear Issue Details if available, to verify if the PR actually implements the described requirements.",
+    "temperature": 0.3,
+    "required_sections": [
+      "PR Description Draft",
+      "Recommended Reviewers",
+      "Slack Dev Channels",
+      "Pre-Flight Checklist"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI PR Prep & Codebase Guide",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "owners_kpi",
+        "title": "File Contributor",
+        "type": "metric_cards",
+        "data_source": "file_owners",
+        "layout": {
+          "col_span": 4,
+          "order": 2
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Key Code Contributors",
+              "value_key": "author",
+              "aggregation": "count",
+              "icon": "user",
+              "color": "blue"
+            }
+          ]
+        }
+      },
+      {
+        "id": "slack_kpi",
+        "title": "Slack Sync",
+        "type": "metric_cards",
+        "data_source": "active_slack_channels",
+        "layout": {
+          "col_span": 4,
+          "order": 3
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Dev Channels Found",
+              "value_key": "name",
+              "aggregation": "count",
+              "icon": "slack",
+              "color": "teal"
+            }
+          ]
+        }
+      },
+      {
+        "id": "pr_kpi",
+        "title": "Merge Reference",
+        "type": "metric_cards",
+        "data_source": "recent_prs",
+        "layout": {
+          "col_span": 4,
+          "order": 4
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Closed PRs for Pattern Reference",
+              "value_key": "pr_title",
+              "aggregation": "count",
+              "icon": "git-pull-request",
+              "color": "yellow"
+            }
+          ]
+        }
+      },
+      {
+        "id": "owners_table",
+        "title": "Active Module Committers",
+        "type": "table",
+        "data_source": "file_owners",
+        "layout": {
+          "col_span": 6,
+          "order": 5
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "author",
+              "header": "Developer",
+              "type": "text"
+            },
+            {
+              "key": "commit_count",
+              "header": "Commits",
+              "type": "text"
+            },
+            {
+              "key": "last_modified",
+              "header": "Last Commit",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "prs_table",
+        "title": "Successful Pull Request Formats",
+        "type": "table",
+        "data_source": "recent_prs",
+        "layout": {
+          "col_span": 6,
+          "order": 6
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "pr_title",
+              "header": "Reference Pull Request",
+              "type": "link",
+              "link_key": "pr_url"
+            },
+            {
+              "key": "pr_author",
+              "header": "Merged By",
+              "type": "text"
+            },
+            {
+              "key": "created_at",
+              "header": "Date",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "linear_context_widget",
+        "title": "Linked Linear Issue",
+        "type": "table",
+        "data_source": "linear_context",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "title",
+              "header": "Issue",
+              "type": "text"
+            },
+            {
+              "key": "state_name",
+              "header": "State",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

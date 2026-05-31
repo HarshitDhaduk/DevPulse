@@ -1,0 +1,241 @@
+{
+  "id": "sprint-retro",
+  "name": "Sprint Retro",
+  "description": "Agile Coach dashboard analyzing completed cycle achievements, PR merge velocity, carryover bottlenecks, and historical quality escape trends.",
+  "icon": "\ud83d\udd04",
+  "category": "Management",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    },
+    {
+      "name": "team_name",
+      "type": "string",
+      "default": "Engineering",
+      "description": "Linear team name"
+    },
+    {
+      "name": "slack_channel",
+      "type": "string",
+      "default": "engineering",
+      "description": "Primary Slack channel name"
+    }
+  ],
+  "queries": [
+    {
+      "id": "completed_issues",
+      "label": "Completed Cycle Issues",
+      "sql": "SELECT title AS issue_title,\n       'Developer' AS assignee,\n       state_id AS state,\n       estimate\nFROM linear.issues\nWHERE state_id = 'done'\n  AND team_key = '{team_name}'",
+      "optional": false
+    },
+    {
+      "id": "slipped_issues",
+      "label": "Slipped Issues",
+      "sql": "SELECT title AS issue_title,\n       'Developer' AS assignee,\n       state_id AS state,\n       estimate\nFROM linear.issues\nWHERE state_id != 'done'\n  AND team_key = '{team_name}'",
+      "optional": false
+    },
+    {
+      "id": "merged_prs",
+      "label": "Merged Pull Requests",
+      "sql": "SELECT title AS pr_title,\n       user__login AS author,\n       created_at,\n       merged_at,\n       html_url AS pr_url\nFROM github.pulls\nWHERE OWNER = '{owner}'\n  AND repo = '{repo}'\n  AND state = 'closed'\n  AND merged_at IS NOT NULL\nORDER BY merged_at DESC\nLIMIT 20",
+      "optional": true
+    },
+    {
+      "id": "historical_sentry",
+      "label": "Sentry Error Escape Volumetrics",
+      "sql": "SELECT title,\n       COUNT,\n       LEVEL\nFROM sentry.issues\nWHERE LEVEL IN ('error',\n                'fatal')\nORDER BY COUNT DESC\nLIMIT 10",
+      "optional": true
+    },
+    {
+      "id": "slack_sentiment",
+      "label": "Recent Discussions",
+      "sql": "SELECT u.real_name AS author, m.text, m.reply_count\nFROM slack.messages(channel := '{slack_channel_id}') m\nLEFT JOIN slack.users u ON m.user_id = u.id\nORDER BY m.reply_count DESC\nLIMIT 10",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Agile Coach",
+    "system_prompt": "You are a pragmatic Agile Coach. Analyze retrospective patterns, focus on structural improvements, celebrate delivered story points, investigate slippage bottlenecks, and flag quality escapes.",
+    "synthesis_prompt": "Examine the cycle completion rate, PR merge cycles, and quality escape data. Generate a comprehensive retrospective analysis. Address velocity, slippage factors, PR review latency, and code stability suggestions. Also review recent Slack discussions to gauge team sentiment and communication bottlenecks.",
+    "temperature": 0.3,
+    "required_sections": [
+      "Sprint Overview",
+      "Velocity Analysis",
+      "Process Bottlenecks",
+      "Quality Escapes",
+      "Action Items"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Retrospective Insights",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "points_delivered",
+        "title": "Delivered Story Points",
+        "type": "metric_cards",
+        "data_source": "completed_issues",
+        "layout": {
+          "col_span": 4,
+          "order": 2
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Story Points Completed",
+              "value_key": "estimate",
+              "aggregation": "sum",
+              "icon": "check-circle",
+              "color": "green"
+            }
+          ]
+        }
+      },
+      {
+        "id": "points_slipped",
+        "title": "Slipped Story Points",
+        "type": "metric_cards",
+        "data_source": "slipped_issues",
+        "layout": {
+          "col_span": 4,
+          "order": 3
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Story Points Slippage",
+              "value_key": "estimate",
+              "aggregation": "sum",
+              "icon": "x-circle",
+              "color": "yellow"
+            }
+          ]
+        }
+      },
+      {
+        "id": "prs_merged_count",
+        "title": "Total PRs Merged",
+        "type": "metric_cards",
+        "data_source": "merged_prs",
+        "layout": {
+          "col_span": 4,
+          "order": 4
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Code Deliveries",
+              "value_key": "pr_title",
+              "aggregation": "count",
+              "icon": "git-merge",
+              "color": "teal"
+            }
+          ]
+        }
+      },
+      {
+        "id": "cycle_composition",
+        "title": "Issue Accomplishment Breakdown",
+        "type": "chart_pie",
+        "data_source": "completed_issues",
+        "layout": {
+          "col_span": 6,
+          "order": 5
+        },
+        "config": {
+          "name_key": "assignee",
+          "value_key": "estimate",
+          "colors": [
+            "#00F2FE",
+            "#4FACFE",
+            "#00C6FF",
+            "#0072FF"
+          ]
+        }
+      },
+      {
+        "id": "slipped_table",
+        "title": "Slipped / Unresolved Issues Queue",
+        "type": "table",
+        "data_source": "slipped_issues",
+        "layout": {
+          "col_span": 6,
+          "order": 6
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "issue_title",
+              "header": "Issue Name",
+              "type": "text"
+            },
+            {
+              "key": "assignee",
+              "header": "Assignee",
+              "type": "text"
+            },
+            {
+              "key": "state",
+              "header": "Current Status",
+              "type": "text"
+            },
+            {
+              "key": "estimate",
+              "header": "Points",
+              "type": "text"
+            }
+          ]
+        }
+      },
+      {
+        "id": "slack_retro_table",
+        "title": "Most Discussed Threads",
+        "type": "table",
+        "data_source": "slack_sentiment",
+        "layout": {
+          "col_span": 6,
+          "order": 10
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "author",
+              "header": "Author",
+              "type": "text"
+            },
+            {
+              "key": "text",
+              "header": "Message",
+              "type": "text"
+            },
+            {
+              "key": "reply_count",
+              "header": "Replies",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

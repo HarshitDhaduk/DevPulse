@@ -1,0 +1,196 @@
+{
+  "id": "prod-stability",
+  "name": "Prod Stability",
+  "description": "SRE dashboard that correlates critical Sentry exceptions with recently committed code changes to identify risk vectors and coordinate rollbacks.",
+  "icon": "\ud83d\udea8",
+  "category": "Operations",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    },
+    {
+      "name": "sentry_org",
+      "type": "string",
+      "default": "devpulse-org",
+      "description": "Sentry Organization slug"
+    },
+    {
+      "name": "slack_channel",
+      "type": "string",
+      "default": "alerts",
+      "description": "Slack alerts channel"
+    }
+  ],
+  "queries": [
+    {
+      "id": "fatal_errors",
+      "label": "Fatal Sentry Exceptions",
+      "sql": "SELECT title AS error_title,\n       count AS error_count,\n                project,\n                status,\n                last_seen\nFROM sentry.issues\nWHERE level = 'fatal'\n  AND status = 'unresolved'\nORDER BY count DESC",
+      "optional": true
+    },
+    {
+      "id": "recent_code_commits",
+      "label": "Recent Deploy Commits",
+      "sql": "SELECT sha,\n       commit__message AS message,\n       commit__author__name AS author,\n       commit__author__date AS committed_at\nFROM github.commits\nWHERE owner = '{owner}' AND repo = '{repo}'\nORDER BY commit__author__date DESC\nLIMIT 15",
+      "optional": true
+    },
+    {
+      "id": "incident_chatter",
+      "label": "Incident Slack Chatter",
+      "sql": "SELECT u.real_name AS author, m.text, m.ts\nFROM slack.messages(channel := '{slack_channel_id}') m\nLEFT JOIN slack.users u ON m.user_id = u.id\nORDER BY m.ts DESC\nLIMIT 15",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "SRE Incident Commander",
+    "system_prompt": "You are a calm, details-oriented Site Reliability Engineer (SRE). Your mission is to isolate incident blast radiuses, identify suspect commits, and recommend immediate rollbacks.",
+    "synthesis_prompt": "Synthesize an incident response brief using Sentry errors, recent PRs, and Slack chatter from the alerts channel. Provide a timeline of events and potential root causes based on recent deployments.",
+    "temperature": 0.1,
+    "required_sections": [
+      "Incident Severity Summary",
+      "Regressive Root Causes",
+      "Suspect Changes",
+      "Remediation Checklist"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Stability Triage Assessment",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "fatal_kpis",
+        "title": "Outage Violations",
+        "type": "metric_cards",
+        "data_source": "fatal_errors",
+        "layout": {
+          "col_span": 12,
+          "order": 2
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Active Fatal Outages",
+              "value_key": "error_title",
+              "aggregation": "count",
+              "icon": "skull",
+              "color": "coral",
+              "trend": "up_bad"
+            }
+          ]
+        }
+      },
+      {
+        "id": "fatal_errors_table",
+        "title": "Active Production Fatalities",
+        "type": "table",
+        "data_source": "fatal_errors",
+        "layout": {
+          "col_span": 12,
+          "order": 3
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "error_title",
+              "header": "Error Event",
+              "type": "text"
+            },
+            {
+              "key": "project",
+              "header": "Project",
+              "type": "text"
+            },
+            {
+              "key": "error_count",
+              "header": "Frequency",
+              "type": "text"
+            },
+            {
+              "key": "last_seen",
+              "header": "Last Triggered",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "recent_commits_table",
+        "title": "Suspect Commits Changelog",
+        "type": "table",
+        "data_source": "recent_code_commits",
+        "layout": {
+          "col_span": 12,
+          "order": 4
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "sha",
+              "header": "Commit SHA",
+              "type": "text"
+            },
+            {
+              "key": "message",
+              "header": "Message",
+              "type": "text"
+            },
+            {
+              "key": "author",
+              "header": "Pusher",
+              "type": "text"
+            },
+            {
+              "key": "committed_at",
+              "header": "Date/Time",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "slack_incident_table",
+        "title": "Incident Chatter",
+        "type": "table",
+        "data_source": "incident_chatter",
+        "layout": {
+          "col_span": 12,
+          "order": 6
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "author",
+              "header": "Responder",
+              "type": "text"
+            },
+            {
+              "key": "text",
+              "header": "Message",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

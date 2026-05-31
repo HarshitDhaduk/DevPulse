@@ -1,0 +1,168 @@
+{
+  "id": "sentry-health-check",
+  "name": "Sentry Health Check",
+  "description": "Focused application health diagnostic identifying exception counts, primary culprits, and stability lifecycles.",
+  "icon": "\ud83c\udfe5",
+  "category": "Quality Assurance",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "sentry_org",
+      "type": "string",
+      "default": "devpulse-org",
+      "description": "Sentry Organization slug"
+    },
+    {
+      "name": "team_name",
+      "type": "string",
+      "default": "Engineering",
+      "description": "Linear team for bugs"
+    }
+  ],
+  "queries": [
+    {
+      "id": "all_unresolved",
+      "label": "Unresolved Application Exceptions",
+      "sql": "SELECT title,\n       COUNT AS error_count,\n                LEVEL,\n                status,\n                first_seen,\n                last_seen\nFROM sentry.issues\nWHERE status = 'unresolved'\nORDER BY COUNT DESC\nLIMIT 15",
+      "optional": false
+    },
+    {
+      "id": "recent_bugs",
+      "label": "Recent Bug Tickets",
+      "sql": "SELECT identifier, title, state_name FROM linear.issues WHERE team_key = '{team_name}' AND label_names LIKE '%Bug%' ORDER BY created_at DESC LIMIT 5",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Application Quality Analyst",
+    "system_prompt": "You are a rigorous Application Quality Analyst. Group errors by type, locate unstable source files, evaluate exception frequencies, and recommend testing strategies.",
+    "synthesis_prompt": "Analyze unresolved exceptions. Group errors by files/methods. Outline the top 3 culprits, rate overall software quality, and suggest regression-testing steps. Check if there are corresponding Linear bug tickets for the top errors. If not, recommend creating them.",
+    "temperature": 0.2,
+    "required_sections": [
+      "Software Health Grade",
+      "Top Defect Culprits",
+      "Regression Analysis",
+      "Recommended Tests"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Bug Analysis & Defect Grade",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "quality_kpi",
+        "title": "Unresolved Defects",
+        "type": "metric_cards",
+        "data_source": "all_unresolved",
+        "layout": {
+          "col_span": 12,
+          "order": 2
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Unique Active Exceptions",
+              "value_key": "title",
+              "aggregation": "count",
+              "icon": "bug",
+              "color": "yellow"
+            }
+          ]
+        }
+      },
+      {
+        "id": "errors_chart",
+        "title": "Outage Spikes by File Method",
+        "type": "chart_bar",
+        "data_source": "all_unresolved",
+        "layout": {
+          "col_span": 12,
+          "order": 3
+        },
+        "config": {
+          "x_axis": "title",
+          "series": [
+            {
+              "key": "error_count",
+              "name": "Event Spikes Count",
+              "color": "#F35555"
+            }
+          ]
+        }
+      },
+      {
+        "id": "errors_list_table",
+        "title": "Exception Catalog Details",
+        "type": "table",
+        "data_source": "all_unresolved",
+        "layout": {
+          "col_span": 12,
+          "order": 4
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "title",
+              "header": "Error Signature",
+              "type": "text"
+            },
+            {
+              "key": "level",
+              "header": "Severity",
+              "type": "text"
+            },
+            {
+              "key": "error_count",
+              "header": "Event Frequency",
+              "type": "text"
+            },
+            {
+              "key": "first_seen",
+              "header": "First Seen",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "linear_bugs_widget",
+        "title": "Recent Bug Tickets",
+        "type": "table",
+        "data_source": "recent_bugs",
+        "layout": {
+          "col_span": 6,
+          "order": 6
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "identifier",
+              "header": "ID",
+              "type": "text"
+            },
+            {
+              "key": "title",
+              "header": "Title",
+              "type": "text"
+            },
+            {
+              "key": "state_name",
+              "header": "State",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,250 @@
+{
+  "id": "morning-standup",
+  "name": "Morning Standup",
+  "description": "Scrum Master dashboard to analyze active sprint issues, review open pull requests, and track urgent production errors.",
+  "icon": "\u2600\ufe0f",
+  "category": "Operations",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub owner / organization"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub repository name"
+    },
+    {
+      "name": "team_name",
+      "type": "string",
+      "default": "Engineering",
+      "description": "Linear team name"
+    },
+    {
+      "name": "slack_channel",
+      "type": "string",
+      "default": "engineering",
+      "description": "Primary Slack channel name"
+    }
+  ],
+  "queries": [
+    {
+      "id": "sprint_issues",
+      "label": "Active Sprint Issues",
+      "sql": "SELECT title AS issue_title,\n       'Developer' AS assignee,\n       state_id AS state,\n       priority_label AS priority,\n       estimate,\n       'Linear' AS source,\n       url AS issue_url\nFROM linear.issues\nWHERE team_key = '{team_name}'\nUNION ALL\nSELECT title AS issue_title,\n       user__login AS assignee,\n       state AS state,\n       'medium' AS priority,\n       0 AS estimate,\n       'GitHub' AS source,\n       html_url AS issue_url\nFROM github.issues\nWHERE owner = '{owner}'\n  AND repo = '{repo}'\n  AND state = 'open'\n  AND pull_request__url IS NULL",
+      "optional": false
+    },
+    {
+      "id": "open_prs",
+      "label": "Open Pull Requests",
+      "sql": "SELECT title AS pr_title,\n       user__login AS author,\n       created_at,\n       html_url AS pr_url\nFROM github.pulls\nWHERE OWNER = '{owner}'\n  AND repo = '{repo}'\n  AND state = 'open'\n  AND draft = FALSE\nORDER BY created_at ASC\nLIMIT 10",
+      "optional": true
+    },
+    {
+      "id": "critical_errors",
+      "label": "Recent Production Errors",
+      "sql": "SELECT title AS error_title,\n       COUNT AS error_count,\n                first_seen\nFROM sentry.issues\nWHERE LEVEL IN ('error',\n                'fatal')\n  AND status = 'unresolved'\nORDER BY COUNT DESC\nLIMIT 5",
+      "optional": true
+    },
+    {
+      "id": "recent_slack_messages",
+      "label": "Recent Slack Activity",
+      "sql": "SELECT u.real_name AS author, m.text, m.ts\nFROM slack.messages(channel := '{slack_channel_id}') m\nLEFT JOIN slack.users u ON m.user_id = u.id\nORDER BY m.ts DESC\nLIMIT 15",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Scrum Master",
+    "system_prompt": "You are a professional Scrum Master. Your goal is to keep standup meetings fast, focused, and action-oriented. Identify blockers, flag unattended PRs, and ensure critical errors are assigned.",
+    "synthesis_prompt": "Review the sprint, PR, Slack messages, and error datasets. Create a morning standup briefing containing: 1) A 3-bullet Executive Summary 2) Blockers & Slipped Items 3) Code Reviews needed today 4) Team Chatter Summary (from Slack) 5) Production alerts needing ownership. Keep it brief and highly technical.",
+    "temperature": 0.2,
+    "required_sections": [
+      "Executive Summary",
+      "Active Blockers",
+      "PRs to Review",
+      "Team Chatter",
+      "Urgent Errors"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Standup Briefing",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "stats",
+        "title": "Active Issues count",
+        "type": "metric_cards",
+        "data_source": "sprint_issues",
+        "layout": {
+          "col_span": 4,
+          "order": 2
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Active Issues",
+              "value_key": "issue_title",
+              "aggregation": "count",
+              "icon": "check-square",
+              "color": "blue"
+            }
+          ]
+        }
+      },
+      {
+        "id": "pr_kpi",
+        "title": "Review Queue",
+        "type": "metric_cards",
+        "data_source": "open_prs",
+        "layout": {
+          "col_span": 4,
+          "order": 3
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Open PRs",
+              "value_key": "pr_title",
+              "aggregation": "count",
+              "icon": "git-pull-request",
+              "color": "teal"
+            }
+          ]
+        }
+      },
+      {
+        "id": "error_kpi",
+        "title": "Production Warnings",
+        "type": "metric_cards",
+        "data_source": "critical_errors",
+        "layout": {
+          "col_span": 4,
+          "order": 4
+        },
+        "config": {
+          "cards": [
+            {
+              "label": "Unresolved Errors",
+              "value_key": "error_title",
+              "aggregation": "count",
+              "icon": "alert-triangle",
+              "color": "coral"
+            }
+          ]
+        }
+      },
+      {
+        "id": "sprint_board",
+        "title": "Sprint Kanban Board",
+        "type": "board",
+        "data_source": "sprint_issues",
+        "layout": {
+          "col_span": 12,
+          "order": 5
+        },
+        "config": {
+          "group_by": "state",
+          "card_title": "issue_title",
+          "card_subtitle": "assignee"
+        }
+      },
+      {
+        "id": "pr_table",
+        "title": "Pull Requests Awaiting Review",
+        "type": "table",
+        "data_source": "open_prs",
+        "layout": {
+          "col_span": 6,
+          "order": 6
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "pr_title",
+              "header": "Title",
+              "type": "link",
+              "link_key": "pr_url"
+            },
+            {
+              "key": "author",
+              "header": "Author",
+              "type": "text"
+            },
+            {
+              "key": "created_at",
+              "header": "Opened",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "id": "error_table",
+        "title": "Top Critical Exceptions",
+        "type": "table",
+        "data_source": "critical_errors",
+        "layout": {
+          "col_span": 6,
+          "order": 7
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "error_title",
+              "header": "Exception",
+              "type": "text"
+            },
+            {
+              "key": "first_seen",
+              "header": "First Seen",
+              "type": "date"
+            },
+            {
+              "key": "error_count",
+              "header": "Frequency",
+              "type": "text"
+            }
+          ]
+        }
+      },
+      {
+        "id": "slack_table",
+        "title": "Recent Team Chat",
+        "type": "table",
+        "data_source": "recent_slack_messages",
+        "layout": {
+          "col_span": 6,
+          "order": 8
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "author",
+              "header": "Author",
+              "type": "text"
+            },
+            {
+              "key": "text",
+              "header": "Message",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "id": "custom-sql-triage",
+  "name": "Custom SQL Triage",
+  "description": "Custom query operational telemetry center mapping linear tasks and code contributions.",
+  "icon": "\ud83d\ude80",
+  "category": "Operations",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "name": "owner",
+      "type": "string",
+      "default": "wemakedev",
+      "description": "GitHub Owner"
+    },
+    {
+      "name": "repo",
+      "type": "string",
+      "default": "DevPulse",
+      "description": "GitHub Repository"
+    }
+  ],
+  "queries": [
+    {
+      "id": "recent_commits",
+      "label": "Latest Commits",
+      "sql": "SELECT sha,\n       commit__message AS message,\n       commit__author__name AS author\nFROM github.commits\nWHERE owner = '{owner}' AND repo = '{repo}'\nLIMIT 5",
+      "optional": true
+    }
+  ],
+  "ai_persona": {
+    "name": "Strategic Architect",
+    "system_prompt": "You are a strategic AI delivery advisor. Analyze contribution activity and formulate recommendations.",
+    "synthesis_prompt": "Review recent code commits. Report on code progression metrics.",
+    "temperature": 0.3,
+    "required_sections": [
+      "Highlights",
+      "Strategic Action Items"
+    ]
+  },
+  "ui_layout": {
+    "type": "grid",
+    "columns": 12,
+    "widgets": [
+      {
+        "id": "summary",
+        "title": "AI Strategic Briefing",
+        "type": "markdown",
+        "data_source": "ai_synthesis",
+        "layout": {
+          "col_span": 12,
+          "order": 1
+        }
+      },
+      {
+        "id": "commits_table",
+        "title": "Recent Commits Log",
+        "type": "table",
+        "data_source": "recent_commits",
+        "layout": {
+          "col_span": 12,
+          "order": 2
+        },
+        "config": {
+          "columns": [
+            {
+              "key": "sha",
+              "header": "Commit",
+              "type": "text"
+            },
+            {
+              "key": "message",
+              "header": "Message",
+              "type": "text"
+            },
+            {
+              "key": "author",
+              "header": "Developer",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

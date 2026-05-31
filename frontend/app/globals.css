@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/* ── Design token theme: colors (as CSS vars for runtime access + opacity modifiers) ── */
+@theme {
+  --color-bg:      #0a0c0f;
+  --color-bg2:     #0f1217;
+  --color-bg3:     #141820;
+
+  --color-border:  #1e2530;
+  --color-border2: #2a3340;
+
+  --color-coral:     #ff6b4a;
+  --color-coral2:    #ff8c6b;
+  --color-teal:      #00d4aa;
+  --color-teal2:     #00f0c0;
+  --color-devyellow: #f5c842;
+  --color-devblue:   #4a9eff;
+  --color-devpurple: #a78bfa;
+
+  --color-text:  #e8edf5;
+  --color-text2: #8a99b0;
+  --color-text3: #5a6880;
+}
+
+/* ── Font aliases + background/foreground mapping ── */
+@theme inline {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --font-sans:    var(--font-dm-sans);
+  --font-mono:    var(--font-ibm-plex-mono);
+  --font-display: var(--font-syne);
+}
+
+:root {
+  --background: #0a0c0f;
+  --foreground: #e8edf5;
+}
+
+/* ── Grid texture baked into body background (layers above background-color) ── */
+body {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(rgba(30, 37, 48, 0.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 37, 48, 0.55) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-attachment: fixed;
+  color: var(--foreground);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #2a3340; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #5a6880; }
+
+/* ── Gradient text: coral → teal → blue ── */
+.gradient-text {
+  background: linear-gradient(135deg, #ff6b4a 0%, #00d4aa 55%, #4a9eff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Glow effects ── */
+.glow-coral  { box-shadow: 0 0 24px rgba(255, 107, 74, 0.22); }
+.glow-teal   { box-shadow: 0 0 24px rgba(0, 212, 170, 0.18); }
+/* Keep glow-indigo as alias for backward compat */
+.glow-indigo { box-shadow: 0 0 24px rgba(255, 107, 74, 0.22); }
+
+/* ── Animated pulse dot ── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* ── Card hover lift ── */
+.card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
