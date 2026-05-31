@@ -135,6 +135,7 @@ async def ensure_coral_tokens_loaded(user_id: int):
 async def get_settings(user: dict = Depends(get_current_user)):
     """Return settings for the authenticated user (secrets are masked)."""
     user_id = user["id"]
+    await ensure_coral_tokens_loaded(user_id)
     tokens = await get_user_tokens(user_id)
 
     return {
@@ -175,15 +176,14 @@ async def connect_settings(req: SettingsUpdate, user: dict = Depends(get_current
     # Inject tokens for current Coral session
     inject_user_tokens(updates)
 
-    # Restart Coral to pick up new tokens
+    # Trigger a proper Coral source refresh and restart
     try:
-        await coral.stop()
-        await coral.start()
-        from services.agent_service import init_schema
-        await init_schema()
-        log.info("Coral restarted with user %s tokens", user_id)
+        # ensure_coral_tokens_loaded will diff the tokens and call refresh_source for any that changed
+        await ensure_coral_tokens_loaded(user_id)
+        log.info("Coral refreshed and restarted with user %s tokens", user_id)
         return {"status": "success", "message": "Settings saved and Coral restarted."}
     except Exception as e:
+        log.error("Error refreshing Coral: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 class GitHubOAuthRequest(BaseModel):
@@ -238,22 +238,11 @@ async def github_oauth(req: GitHubOAuthRequest, user: dict = Depends(get_current
                     current_owner = await _get_user_setting(user_id, "GITHUB_OWNER")
                     if not current_owner:
                         await _set_user_setting(user_id, "GITHUB_OWNER", gh_login)
-                        inject_user_tokens({"GITHUB_TOKEN": access_token, "GITHUB_OWNER": gh_login})
-                    else:
-                        inject_user_tokens({"GITHUB_TOKEN": access_token})
-                else:
-                    inject_user_tokens({"GITHUB_TOKEN": access_token})
-            else:
-                inject_user_tokens({"GITHUB_TOKEN": access_token})
     except Exception as e:
         log.warning("Failed to fetch GitHub username: %s", e)
-        inject_user_tokens({"GITHUB_TOKEN": access_token})
     
     try:
-        await coral.stop()
-        await coral.start()
-        from services.agent_service import init_schema
-        await init_schema()
+        await ensure_coral_tokens_loaded(user_id)
         log.info("Coral restarted with new GitHub OAuth token for user %s", user_id)
         return {"status": "success", "message": "GitHub connected successfully!"}
     except Exception as e:
@@ -262,6 +251,7 @@ async def github_oauth(req: GitHubOAuthRequest, user: dict = Depends(get_current
 
 class SlackOAuthRequest(BaseModel):
     code: str
+    redirect_uri: str | None = None
 
 @router.post("/settings/slack/oauth")
 async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_user)):
@@ -277,7 +267,7 @@ async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_u
                 "client_id": settings.SLACK_CLIENT_ID,
                 "client_secret": settings.SLACK_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": "http://localhost:3000/settings/slack/callback",
+                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/slack/callback",
             }
         )
     
@@ -307,13 +297,8 @@ async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_u
         expires_at = str(int(time.time() + expires_in))
         await _set_user_setting(user_id, "SLACK_EXPIRES_AT", expires_at)
     
-    inject_user_tokens({"SLACK_TOKEN": access_token})
-    
     try:
-        await coral.stop()
-        await coral.start()
-        from services.agent_service import init_schema
-        await init_schema()
+        await ensure_coral_tokens_loaded(user_id)
         log.info("Coral restarted with new Slack OAuth token for user %s", user_id)
         return {"status": "success", "message": "Slack connected successfully!"}
     except Exception as e:
@@ -322,6 +307,7 @@ async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_u
 
 class LinearOAuthRequest(BaseModel):
     code: str
+    redirect_uri: str | None = None
 
 @router.post("/settings/linear/oauth")
 async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current_user)):
@@ -339,7 +325,7 @@ async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current
                 "client_id": settings.LINEAR_CLIENT_ID,
                 "client_secret": settings.LINEAR_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": "http://localhost:3000/settings/linear/callback",
+                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/linear/callback",
             }
         )
     
@@ -368,13 +354,8 @@ async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current
         expires_at = str(int(time.time() + expires_in))
         await _set_user_setting(user_id, "LINEAR_EXPIRES_AT", expires_at)
     
-    inject_user_tokens({"LINEAR_API_KEY": access_token})
-    
     try:
-        await coral.stop()
-        await coral.start()
-        from services.agent_service import init_schema
-        await init_schema()
+        await ensure_coral_tokens_loaded(user_id)
         log.info("Coral restarted with new Linear OAuth token for user %s", user_id)
         return {"status": "success", "message": "Linear connected successfully!"}
     except Exception as e:
@@ -383,6 +364,7 @@ async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current
 
 class SentryOAuthRequest(BaseModel):
     code: str
+    redirect_uri: str | None = None
 
 @router.post("/settings/sentry/oauth")
 async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current_user)):
@@ -399,7 +381,7 @@ async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current
                 "client_id": settings.SENTRY_CLIENT_ID,
                 "client_secret": settings.SENTRY_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": "http://localhost:3000/settings/sentry/callback",
+                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/sentry/callback",
             }
         )
     
@@ -479,7 +461,6 @@ async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current
                 "User needs to update the Sentry OAuth Application permissions."
             )
             # Still save the org slug and token, but warn the user
-            inject_user_tokens({"SENTRY_TOKEN": token_to_inject, **({"SENTRY_ORG": org_slug} if org_slug else {})})
             try:
                 await coral.stop()
                 await coral.start()
@@ -501,19 +482,10 @@ async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current
     except Exception as e:
         log.warning("Token validation request failed: %s", e)
 
-    inject_user_tokens({"SENTRY_TOKEN": token_to_inject, **({"SENTRY_ORG": org_slug} if org_slug else {})})
-    
     try:
-        # Coral persists source credentials at `source add` time.
-        # We must remove + re-add the source to pick up the new token.
-        await coral.stop()
-        await coral.refresh_source("sentry")
-        await coral.start()
-        from services.agent_service import init_schema
-        await init_schema()
-        log.info("Coral restarted with new Sentry token for user %s", user_id)
+        await ensure_coral_tokens_loaded(user_id)
+        log.info("Coral restarted with new Sentry OAuth token for user %s", user_id)
         return {"status": "success", "message": "Sentry connected successfully with full permissions!"}
     except Exception as e:
         log.error("Failed to restart Coral: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-

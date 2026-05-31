@@ -20,7 +20,10 @@ function CallbackHandler() {
     if (called.current) return;
     called.current = true;
 
-    api.post("/api/settings/sentry/oauth", { code })
+    api.post("/api/settings/sentry/oauth", { 
+      code,
+      redirect_uri: window.location.origin + window.location.pathname
+    })
       .then((data: any) => {
         if (data.status === "partial") {
           setError(data.message || "Sentry connected with limited permissions.");

@@ -30,15 +30,16 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    // Load the Google Identity Services script
+    // Check if script already exists to avoid duplicates in Strict Mode
+    if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+      if (window.google) setGsiLoaded(true);
+      return;
+    }
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.onload = () => setGsiLoaded(true);
     document.head.appendChild(script);
-    return () => {
-      document.head.removeChild(script);
-    };
   }, []);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function LoginPage() {
 
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId || clientId === "YOUR_GOOGLE_CLIENT_ID_HERE") {
+      console.warn("Google Client ID is missing or not configured. Cannot render Google Sign-In button.");
       return; // Skip Google init if not configured
     }
 

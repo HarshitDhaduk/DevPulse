@@ -33,6 +33,7 @@ type WorkflowSpec = {
   variables: { name: string; type: string; default: any; description: string }[];
   queries: { id: string; label: string; sql: string; optional: boolean }[];
   ui_layout: { columns: number; widgets: WidgetSpec[] };
+  ai_persona?: any;
 };
 
 function MarkdownRenderer({ text }: { text: string }) {
@@ -136,6 +137,7 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
   useEffect(() => {
     if (monaco) {
       const provider = monaco.languages.registerCompletionItemProvider("sql", {
+        // @ts-ignore
         provideCompletionItems: (model, position) => {
           const suggestions = [
             { label: "github.commits", kind: monaco.languages.CompletionItemKind.Struct, insertText: "github.commits" },
@@ -197,27 +199,28 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
             const next = { ...prev };
             
             if (data.github_repos?.length > 0) {
-              const currentFullName = `${next.owner}/${next.repo}`;
-              const isValid = data.github_repos.some((r: any) => r.full_name === currentFullName);
-              if (!isValid) {
-                const firstRepo = data.github_repos[0];
+              // Always prefer the user's first repo over the hardcoded template defaults
+              const firstRepo = data.github_repos[0];
+              if (firstRepo) {
                 next.owner = firstRepo.owner;
                 next.repo = firstRepo.name;
               }
             } else if (data.github_owner) {
-               if (!next.owner) next.owner = data.github_owner;
+               next.owner = data.github_owner;
             }
             
             if (data.slack_channels?.length > 0) {
-              if (!next.slack_channel || !data.slack_channels.some((c: any) => c.name === next.slack_channel)) {
-                next.slack_channel = data.slack_channels[0].name;
+              const firstChannel = data.slack_channels[0];
+              if (firstChannel) {
+                next.slack_channel = firstChannel.name;
               }
             }
             
             if (data.linear_teams?.length > 0) {
-              if (!next.team_key || !data.linear_teams.some((t: any) => t.key === next.team_key)) {
-                next.team_key = data.linear_teams[0].key;
-                next.team_name = data.linear_teams[0].name;
+              const firstTeam = data.linear_teams[0];
+              if (firstTeam) {
+                next.team_key = firstTeam.key;
+                next.team_name = firstTeam.name;
               }
             }
             
@@ -445,7 +448,8 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
             ) : (
               spec.variables.map((v) => {
                 const renderField = () => {
-                  if (v.name === "repo" && discovery?.github_repos && discovery.github_repos.length > 0) {
+                  if (v.name === "repo" && integrations?.has_github) {
+                    const hasRepos = discovery?.github_repos && discovery.github_repos.length > 0;
                     return (
                       <select
                         value={variables["repo"] && variables["owner"] ? `${variables["owner"]}/${variables["repo"]}` : ""}
@@ -460,14 +464,15 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                         className="rounded-lg border border-border2 bg-bg2 px-3 py-2 text-xs outline-none focus:border-teal transition-colors text-text"
                       >
                         <option value="">-- Select Repository --</option>
-                        {discovery.github_repos.map((r) => (
+                        {!hasRepos && <option disabled value="">No repositories found (check token)</option>}
+                        {hasRepos && discovery.github_repos.map((r) => (
                           <option key={r.full_name} value={r.full_name}>{r.full_name}</option>
                         ))}
                       </select>
                     );
                   }
                   
-                  if (v.name === "owner" && discovery?.github_repos && discovery.github_repos.length > 0) {
+                  if (v.name === "owner" && integrations?.has_github) {
                     return (
                       <input
                         type="text"
@@ -479,7 +484,8 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                     );
                   }
 
-                  if (v.name === "slack_channel" && discovery?.slack_channels && discovery.slack_channels.length > 0) {
+                  if (v.name === "slack_channel" && integrations?.has_slack) {
+                    const hasChannels = discovery?.slack_channels && discovery.slack_channels.length > 0;
                     return (
                       <select
                         value={variables[v.name] ?? ""}
@@ -487,14 +493,16 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                         className="rounded-lg border border-border2 bg-bg2 px-3 py-2 text-xs outline-none focus:border-teal transition-colors text-text"
                       >
                         <option value="">-- Select Channel --</option>
-                        {discovery.slack_channels.map((c) => (
+                        {!hasChannels && <option disabled value="">No channels found (check token)</option>}
+                        {hasChannels && discovery.slack_channels.map((c) => (
                           <option key={c.name} value={c.name}>#{c.name}</option>
                         ))}
                       </select>
                     );
                   }
 
-                  if ((v.name === "team_name" || v.name === "team_key") && discovery?.linear_teams && discovery.linear_teams.length > 0) {
+                  if ((v.name === "team_name" || v.name === "team_key") && integrations?.has_linear) {
+                    const hasTeams = discovery?.linear_teams && discovery.linear_teams.length > 0;
                     return (
                       <select
                         value={variables[v.name] ?? ""}
@@ -502,7 +510,8 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                         className="rounded-lg border border-border2 bg-bg2 px-3 py-2 text-xs outline-none focus:border-teal transition-colors text-text"
                       >
                         <option value="">-- Select Team --</option>
-                        {discovery.linear_teams.map((t) => (
+                        {!hasTeams && <option disabled value="">No teams found (check token)</option>}
+                        {hasTeams && discovery.linear_teams.map((t) => (
                           <option key={t.key} value={t.key}>{t.name} ({t.key})</option>
                         ))}
                       </select>

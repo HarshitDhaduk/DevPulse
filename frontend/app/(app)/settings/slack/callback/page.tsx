@@ -17,7 +17,10 @@ function CallbackHandler() {
       return;
     }
 
-    api.post("/api/settings/slack/oauth", { code })
+    api.post("/api/settings/slack/oauth", { 
+      code,
+      redirect_uri: window.location.origin + window.location.pathname
+    })
       .then(() => {
         window.location.href = "/settings";
       })

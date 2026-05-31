@@ -137,6 +137,7 @@ export default function SettingsPage() {
   const [messages, setMessages] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
+  const [origin, setOrigin] = useState("http://localhost:3000");
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [hasTokens, setHasTokens] = useState<Record<string, boolean>>({
@@ -147,6 +148,7 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
+    setOrigin(window.location.origin);
     api
       .get("/api/settings")
       .then((data) => {
@@ -514,7 +516,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_SLACK_CLIENT_ID ? (
                       <a
-                        href={`https://slack.com/oauth/v2/authorize?client_id=${process.env.NEXT_PUBLIC_SLACK_CLIENT_ID}&user_scope=channels:read,channels:history,users:read,groups:read&redirect_uri=${encodeURIComponent("http://localhost:3000/settings/slack/callback")}`}
+                        href={`https://slack.com/oauth/v2/authorize?client_id=${process.env.NEXT_PUBLIC_SLACK_CLIENT_ID}&user_scope=channels:read,channels:history,users:read,groups:read&redirect_uri=${encodeURIComponent(`${origin}/settings/slack/callback`)}`}
                         className="w-full bg-[#4A154B] hover:bg-[#4A154B]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.523-2.522v-2.522h2.523zM15.165 17.688a2.527 2.527 0 0 1-2.523-2.523 2.526 2.526 0 0 1 2.523-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.522h-6.313z" fill="currentColor"/></svg>
@@ -539,7 +541,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID ? (
                       <a
-                        href={`https://linear.app/oauth/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID}&redirect_uri=${encodeURIComponent("http://localhost:3000/settings/linear/callback")}&scope=read`}
+                        href={`https://linear.app/oauth/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/linear/callback`)}&scope=read`}
                         className="w-full bg-[#5E6AD2] hover:bg-[#5E6AD2]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.001 0c6.626 0 11.999 5.372 11.999 11.999 0 6.627-5.373 12-11.999 12-6.628 0-12-5.373-12-12C.001 5.372 5.373 0 12.001 0zm0 3.238c-4.839 0-8.761 3.92-8.761 8.761 0 4.84 3.922 8.761 8.761 8.761 4.839 0 8.761-3.921 8.761-8.761 0-4.841-3.922-8.761-8.761-8.761zm-4.638 4.638l9.277 9.276a1.455 1.455 0 0 1-2.058 2.057l-9.276-9.276a1.455 1.455 0 0 1 2.057-2.057z" fill="currentColor"/></svg>
@@ -564,7 +566,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID ? (
                       <a
-                        href={`https://sentry.io/oauth/authorize/?client_id=${process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID}&redirect_uri=${encodeURIComponent("http://localhost:3000/settings/sentry/callback")}&response_type=code&scope=org:read%20event:read%20project:read`}
+                        href={`https://sentry.io/oauth/authorize/?client_id=${process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/sentry/callback`)}&response_type=code&scope=org:read%20event:read%20project:read`}
                         className="w-full bg-[#362D59] hover:bg-[#362D59]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.583 0A12.067 12.067 0 000 11.233a11.95 11.95 0 001.077 5.093l4.78-2.617a6.386 6.386 0 01-.422-2.316C5.435 7.917 8.358 5 11.85 5a6.417 6.417 0 016.416 6.415c0 3.518-2.893 6.393-6.416 6.415a6.31 6.31 0 01-3.66-.11l-3.327 3.542A11.758 11.758 0 0011.83 23c6.643 0 12.05-5.367 12.05-11.95C23.88 4.484 18.237 0 11.583 0z" fill="currentColor"/></svg>

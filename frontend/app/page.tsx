@@ -262,8 +262,12 @@ ORDER BY s.error_count DESC;`}
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border/60 px-6 py-6 text-center text-xs text-text3 font-mono">
-        DevPulse · Engineering Health Intelligence
+      <footer className="border-t border-border/60 px-6 py-6 flex flex-col sm:flex-row items-center justify-between text-xs text-text3 font-mono">
+        <div>DevPulse · Engineering Health Intelligence</div>
+        <div className="flex gap-4 mt-4 sm:mt-0">
+          <Link href="/privacy-policy" className="hover:text-text transition-colors">Privacy Policy</Link>
+          <Link href="/terms-conditions" className="hover:text-text transition-colors">Terms &amp; Conditions</Link>
+        </div>
       </footer>
     </div>
   );

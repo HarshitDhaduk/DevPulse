@@ -59,8 +59,8 @@ export function ErrorTrendChart({ rawData, loading }: Props) {
         <div className="h-40 bg-bg3 rounded-lg animate-pulse" />
       ) : (
         <>
-          <div className="h-40">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="w-full h-40 min-h-[1px] min-w-[1px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e2530" />
                 <XAxis

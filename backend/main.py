@@ -25,18 +25,26 @@ async def lifespan(app: FastAPI):
             loop.default_exception_handler(context)
         loop.set_exception_handler(custom_handler)
         
+    log.info("Starting lifespan...")
     from db.database import init_db, close_db
+    log.info("Calling init_db...")
     await init_db()
+    log.info("init_db complete. Calling coral.start()...")
     await coral.start()
+    log.info("coral.start() complete. Calling init_schema()...")
     from services.agent_service import init_schema
     await init_schema()
+    log.info("init_schema complete. Calling check_sources()...")
     # Probe all sources on startup and persist status to DB
     try:
         from routers.sources import check_sources
         await check_sources()
+        log.info("check_sources complete.")
     except Exception as e:
         log.warning("Startup source check failed (non-fatal): %s", e)
+    log.info("Starting scheduler...")
     scheduler = start_scheduler()
+    log.info("Scheduler started.")
     log.info("DevPulse API ready")
     try:
         yield
@@ -53,7 +61,10 @@ app = FastAPI(title="DevPulse API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://devpulse-frontend-408340417365.asia-south1.run.app"
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

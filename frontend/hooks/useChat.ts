@@ -20,7 +20,7 @@ export function useChat() {
       es.addEventListener("queries", (e) => cb.onQueries(JSON.parse(e.data)));
       es.addEventListener("token", (e) => cb.onToken(JSON.parse(e.data)));
       es.addEventListener("done", () => { es.close(); cb.onDone(); });
-      es.addEventListener("error", (e) => {
+      es.addEventListener("error", (e: any) => {
         try {
           cb.onError(JSON.parse(e.data));
         } catch {

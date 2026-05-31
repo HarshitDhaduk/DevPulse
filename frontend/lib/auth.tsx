@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(JSON.parse(savedUser));
       // Validate token is still good
       api
-        .get("/api/auth/me", savedToken)
+        .get("/api/auth/me", { Authorization: `Bearer ${savedToken}` })
         .then((data) => {
           setUser(data);
           localStorage.setItem(USER_KEY, JSON.stringify(data));

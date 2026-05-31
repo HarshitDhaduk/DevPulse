@@ -1,111 +1,59 @@
-# ⚡ DevPulse
+# DevPulse
+**Interactive AI-driven Workspaces on top of Coral Federated SQL**
 
-**DevPulse** is a dynamic, AI-powered Morning Standup Workspace. It seamlessly federates data from your favorite developer tools (GitHub, Linear, Slack, Sentry) using **Coral** and synthesizes it into actionable, intelligent reports using **Gemini AI**.
+DevPulse provides real-time engineering diagnostics, agile processes, and SRE post-mortems. It aggregates telemetry across GitHub, Linear, Slack, and Sentry in parallel using **Coral**, executing federated SQL queries, and utilizing AI to provide strategic alignment.
 
-Say goodbye to manual standups and context switching. DevPulse acts as your personal AI Scrum Master, automatically analyzing your pull requests, active sprint issues, and production exceptions to give you a unified view of your entire engineering lifecycle.
-
----
-
-## 🚀 Why DevPulse?
-
-In modern software development, context is fragmented. Developers and engineering managers spend a significant portion of their mornings opening multiple tabs: checking GitHub for PRs, Linear for sprint issues, Sentry for overnight exceptions, and Slack for communications. 
-
-**The Solution:**
-DevPulse leverages the **Coral Federated SQL Engine** to query all these external APIs directly as if they were a single SQL database. We then pass this normalized context to **Gemini**, which acts as an AI Scrum Master to generate a comprehensive "Morning Standup" report. 
-
-* **No Data Silos:** Write one SQL query, federate across GitHub, Linear, Slack, and Sentry.
-* **Intelligent Synthesis:** Gemini AI summarizes the data, drafts Slack updates, and alerts you to rate limits or critical blockers.
-* **Beautiful UX:** A state-of-the-art Next.js interface with dark mode, glowing accents, and real-time Kanbans.
-
----
-
-## 🏗️ Architecture
-
-DevPulse is built with a decoupled frontend and backend architecture, connected via REST APIs and the Coral MCP (Model Context Protocol) server.
+## System Architecture
 
 ```text
-+-------------------------------------------------------------+
-|                     User Browser (Next.js)                  |
-|  +----------------+  +-----------------+  +--------------+  |
-|  | Kanban Boards  |  | Review Queues   |  | AI Chatbot   |  |
-|  +----------------+  +-----------------+  +--------------+  |
-+-----------------------------+-------------------------------+
-                              | HTTP / REST
-                              v
-+-----------------------------+-------------------------------+
-|                      Backend (FastAPI)                      |
-|  +----------------+  +-----------------+  +--------------+  |
-|  |  Auth Router   |  | Settings Router |  | Agent Router |  |
-|  +----------------+  +-----------------+  +--------------+  |
-|                                                             |
-|  +-------------------------------------------------------+  |
-|  |                   Gemini AI Engine                    |  |
-|  +-------------------------------------------------------+  |
-+-----------------------------+-------------------------------+
-                              | MCP (Model Context Protocol)
-                              v
-+-----------------------------+-------------------------------+
-|                   Coral Federated Engine                    |
-| (Translates SQL into REST/GraphQL calls for external APIs)  |
-+-------+-------------+-------------+-------------+-----------+
-        |             |             |             |
-        v             v             v             v
-   +--------+    +--------+    +--------+    +--------+
-   | GitHub |    | Linear |    | Sentry |    | Slack  |
-   +--------+    +--------+    +--------+    +--------+
++-------------------+       +-----------------------+       +-------------------+
+|                   |       |                       |       |                   |
+|  DevPulse React   |<----->|  FastAPI Backend      |<----->|  Gemini AI        |
+|  Frontend (Next)  |       |  (Python, Uvicorn)    |       |  (Synthesis)      |
+|                   |       |                       |       |                   |
++-------------------+       +-----------+-----------+       +-------------------+
+                                        | (MCP over stdio)
+                                        v
+                            +-----------------------+
+                            |                       |
+                            |  Coral MCP Binary     |
+                            |  (Federated Engine)   |
+                            |                       |
+                            +---+-------+-------+---+
+                                |       |       |
+                 +--------------+       |       +---------------+
+                 |                      |                       |
+                 v                      v                       v
+          +------------+         +------------+          +------------+
+          |            |         |            |          |            |
+          |   GitHub   |         |   Linear   |          |   Slack/   |
+          |   (REST)   |         |  (GraphQL) |          |   Sentry   |
+          +------------+         +------------+          +------------+
 ```
 
----
+## Data Flow Diagram
 
-## 🛠️ How it Works
-
-1. **User Authentication & Tool Connection:** The user logs in and securely provides their personal access tokens (GitHub PAT, Linear API Key, Sentry Token, etc.) via the settings panel.
-2. **Coral Source Initialization:** The FastAPI backend injects these tokens into the environment and initializes the Coral engine to create a federated database schema.
-3. **Dynamic Dashboards:** The Next.js frontend requests dashboard data. The backend executes JSON-templated SQL queries against Coral (e.g., `SELECT * FROM github.issues UNION ALL SELECT * FROM linear.issues`), seamlessly merging data across platforms.
-4. **AI Synthesis:** The raw JSON payloads are sent to Gemini. Using custom prompt engineering, Gemini acts as an "AI Scrum Master," generating daily standup reports, highlighting blockers, and identifying critical production errors.
-
----
-
-## 📦 Tech Stack
-
-- **Frontend:** Next.js, React, Tailwind CSS
-- **Backend:** Python, FastAPI, Uvicorn, LangChain
-- **Database / Federation Engine:** Coral SQL Engine
-- **AI Model:** Google Gemini 
-
----
-
-## 🏃‍♂️ Getting Started
-
-### Prerequisites
-- Node.js (v18+)
-- Python (3.10+)
-- Coral CLI installed
-- A Gemini API Key
-
-### 1. Clone the repository
-```bash
-git clone https://github.com/YourUsername/DevPulse.git
-cd DevPulse
+```text
+1. User connects integrations (OAuth/Tokens) via UI -> Saved in SQLite (encrypted).
+2. User opens a Workspace (e.g. Sprint Retro).
+3. Backend fetches user's tokens & injects them into Coral's environment.
+4. UI reads the Workspace JSON template, executing parallel SQL queries via Coral MCP.
+5. Coral queries GitHub, Linear, etc., treating APIs as a single SQL database.
+6. Coral returns formatted tabular row data to the backend.
+7. Backend feeds results to Gemini AI alongside the workspace's synthesis prompt.
+8. Frontend renders data in Recharts/Widgets AND displays AI analysis.
 ```
 
-### 2. Setup the Backend
-```bash
-cd backend
-python -m venv .venv
-# Activate virtual environment (Windows: .venv\Scripts\activate, Mac/Linux: source .venv/bin/activate)
-pip install -r requirements.txt
-cp .env.example .env 
-# Add your GEMINI_API_KEY to the .env file
-uvicorn main:app --reload --port 8000
-```
+## Getting Started
 
-### 3. Setup the Frontend
-```bash
-cd ../frontend
-npm install
-npm run dev
-```
+1. **Install Dependencies**
+   - Frontend: `cd frontend && npm install`
+   - Backend: `cd backend && pip install -r requirements.txt`
 
-### 4. Configure Sources
-Open `http://localhost:3000`, navigate to the **Settings** panel, and connect your tools using their respective API tokens. Click **Run Analysis** on the dashboard to see your AI Scrum Master in action!
+2. **Run Locally**
+   - Run the frontend: `npm run dev`
+   - Run the backend: `fastapi run main.py --port 8080`
+
+3. **Deploy**
+   - Cloud Run (Backend): `gcloud run deploy`
+   - Frontend: Deploy to Vercel/Netlify.

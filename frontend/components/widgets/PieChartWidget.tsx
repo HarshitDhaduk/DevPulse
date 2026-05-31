@@ -38,8 +38,8 @@ export default function PieChartWidget({ data = [], config }: PieChartWidgetProp
 
   return (
     <div className="h-64 w-full border border-border bg-bg2 rounded-xl p-4 flex flex-col justify-end">
-      <div className="flex-1 min-h-0 min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="flex-1 min-h-[1px] min-w-[1px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <PieChart>
             <Pie
               data={chartData}

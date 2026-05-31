@@ -51,8 +51,9 @@ from services.auth import get_current_user
 
 @router.get("/workflows/discover")
 async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
-    from routers.settings import get_user_tokens
+    from routers.settings import get_user_tokens, ensure_coral_tokens_loaded
     user_id = user["id"]
+    await ensure_coral_tokens_loaded(user_id)
     tokens = await get_user_tokens(user_id)
 
     # Determine which integrations the user has actually connected
@@ -62,6 +63,10 @@ async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
     has_sentry = bool(tokens.get("SENTRY_TOKEN"))
 
     connected_count = sum([has_github, has_linear, has_slack, has_sentry])
+
+    # Ensure Coral has this user's tokens loaded before querying
+    from routers.settings import ensure_coral_tokens_loaded
+    await ensure_coral_tokens_loaded(user_id)
 
     # Only query Coral for sources the current user has tokens for
     repos = []
@@ -127,6 +132,10 @@ def get_friendly_error_message(e: Exception) -> str:
 
 @router.post("/workflows/{workflow_id}/run")
 async def run_workflow(workflow_id: str, payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
+    from routers.settings import ensure_coral_tokens_loaded
+    user_id = user["id"]
+    await ensure_coral_tokens_loaded(user_id)
+
     template_path = os.path.join(TEMPLATES_DIR, f"{workflow_id}.json")
     if not os.path.exists(template_path):
         raise HTTPException(status_code=404, detail="Workflow template not found")
@@ -141,6 +150,11 @@ async def run_workflow(workflow_id: str, payload: Dict[str, Any] = Body(default=
     start = time.time()
     status = "SUCCESS"
     result = None
+
+    # Ensure Coral has this user's tokens loaded before querying
+    from routers.settings import ensure_coral_tokens_loaded
+    await ensure_coral_tokens_loaded(user.get("id"))
+
     try:
         result = await run_workflow_template(template, payload)
     except ValueError as ve:
