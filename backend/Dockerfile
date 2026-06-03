@@ -19,5 +19,8 @@ COPY . .
 # Cloud Run defaults to PORT 8080. We map our Uvicorn server to this port.
 ENV PORT=8080
 
+# Configure the database to be stored in the persistent volume mount
+ENV DB_DIR=/app/db-data
+
 # Run Uvicorn when the container starts
 CMD uvicorn main:app --host 0.0.0.0 --port $PORT
