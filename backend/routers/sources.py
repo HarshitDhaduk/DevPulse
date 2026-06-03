@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 import db.database as database
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from services.auth import get_current_user
 from logger import get_logger
 

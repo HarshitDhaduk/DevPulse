@@ -149,12 +149,17 @@ async def login_user_email(email: str, password: str) -> dict:
 
 
 async def get_current_user(request: Request) -> dict:
-    """FastAPI dependency: extract and verify JWT from Authorization header."""
+    """FastAPI dependency: extract and verify JWT from Authorization header or query param."""
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    elif request.query_params.get("_token"):
+        token = request.query_params.get("_token")
+        
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated. Please sign in.")
 
-    token = auth_header[7:]
     payload = verify_jwt(token)
     user_id = int(payload["sub"])
 

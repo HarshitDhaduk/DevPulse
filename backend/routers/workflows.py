@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Dict, Any
 from services.agent_service import run_workflow_template
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from config import settings
 from logger import get_logger
 
@@ -69,10 +69,11 @@ async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
     await ensure_coral_tokens_loaded(user_id)
 
     # Only query Coral for sources the current user has tokens for
+    coral_svc = await coral_manager.get_service(user_id)
     repos = []
     if has_github:
         try:
-            rows = await coral.query("SELECT name, full_name FROM github.user_repos LIMIT 50")
+            rows = await coral_svc.query("SELECT name, full_name FROM github.user_repos LIMIT 50")
             if isinstance(rows, list):
                 for row in rows:
                     name = row.get("name", "")
@@ -85,7 +86,7 @@ async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
     channels = []
     if has_slack:
         try:
-            rows = await coral.query("SELECT name FROM slack.channels LIMIT 50")
+            rows = await coral_svc.query("SELECT name FROM slack.channels LIMIT 50")
             if isinstance(rows, list):
                 for row in rows:
                     channels.append({"name": row.get("name", "")})
@@ -95,7 +96,7 @@ async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
     teams = []
     if has_linear:
         try:
-            rows = await coral.query("SELECT key, name FROM linear.teams LIMIT 50")
+            rows = await coral_svc.query("SELECT key, name FROM linear.teams LIMIT 50")
             if isinstance(rows, list):
                 for row in rows:
                     teams.append({"key": row.get("key", ""), "name": row.get("name", "")})
@@ -128,7 +129,7 @@ def get_friendly_error_message(e: Exception) -> str:
         # Strip detail to avoid raw sql leaks, keep description readable
         clean_msg = error_msg.split("Detail:")[0].replace("Coral query error:", "").strip()
         return f"Database query failed due to a schema mismatch: {clean_msg}"
-    return "An unexpected error occurred while running the workspace. Please check your settings and try again."
+    return f"An unexpected error occurred while running the workspace. Details: {error_msg}. Please check your settings and try again."
 
 @router.post("/workflows/{workflow_id}/run")
 async def run_workflow(workflow_id: str, payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
@@ -156,7 +157,7 @@ async def run_workflow(workflow_id: str, payload: Dict[str, Any] = Body(default=
     await ensure_coral_tokens_loaded(user.get("id"))
 
     try:
-        result = await run_workflow_template(template, payload)
+        result = await run_workflow_template(template, payload, user_id)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:

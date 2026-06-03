@@ -2,6 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Ensure stdout/stderr are unbuffered so we don't lose tracebacks in Cloud Logging
+ENV PYTHONUNBUFFERED=1
+
 # Install curl (for the installation script) and other system dependencies
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 

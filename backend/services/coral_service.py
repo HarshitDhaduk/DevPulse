@@ -21,12 +21,29 @@ CORAL_BIN: str = str(Path(_env_bin).resolve()) if _env_bin else (_which_bin or s
 
 
 class CoralService:
-    def __init__(self):
+    def __init__(self, user_id: int, user_tokens: dict[str, str] | None = None):
+        self._user_id = user_id
         self._process: subprocess.Popen | None = None
         self._pending: dict[int, asyncio.Future] = {}
         self._request_id = 0
+        self._write_lock = asyncio.Lock()
         self._read_thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._env = os.environ.copy()
+        
+        # Isolate the Coral configuration directory per user to prevent cross-user state leakage
+        # MUST use /tmp (in-memory) instead of DB_DIR (GCS Fuse) because Coral uses SQLite internally
+        # which will hang/corrupt on GCS Fuse due to lack of POSIX file locks.
+        base_dir = "/tmp"
+        user_config_dir = str(Path(base_dir) / f".coral_user_{self._user_id}")
+        os.makedirs(user_config_dir, exist_ok=True)
+        self._env["HOME"] = user_config_dir
+        self._env["USERPROFILE"] = user_config_dir
+        self._env["XDG_CONFIG_HOME"] = user_config_dir
+        self._env["XDG_DATA_HOME"] = user_config_dir
+        
+        if user_tokens:
+            self._env.update(user_tokens)
 
     async def start(self):
         """Spawn Coral MCP server via stdio transport and complete MCP handshake."""
@@ -37,12 +54,24 @@ class CoralService:
                 f"Tried: {CORAL_BIN}"
             )
 
+        # Since /tmp is ephemeral, we must re-add all configured sources on container start.
+        source_map = {
+            "SENTRY_TOKEN": "sentry",
+            "GITHUB_TOKEN": "github",
+            "LINEAR_API_KEY": "linear",
+            "SLACK_TOKEN": "slack",
+        }
+        for token_key, source_name in source_map.items():
+            if token_key in self._env:
+                await self.refresh_source(source_name)
+
         self._loop = asyncio.get_running_loop()
         self._process = subprocess.Popen(
             [str(coral_path), "mcp-stdio"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=self._env,
         )
         # Read stdout in a background thread to avoid blocking the event loop
         self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -52,6 +81,16 @@ class CoralService:
         # MCP requires an initialize → initialized handshake before any tools/call.
         # Without this, the server silently ignores all subsequent requests.
         await self._mcp_initialize()
+
+    async def _send_request(self, request_bytes: bytes):
+        """Thread-safe atomic write to Coral stdin."""
+        def _sync_write():
+            if self._process and self._process.stdin:
+                self._process.stdin.write(request_bytes)
+                self._process.stdin.flush()
+                
+        async with self._write_lock:
+            await asyncio.to_thread(_sync_write)
 
     async def _mcp_initialize(self):
         """Perform the MCP initialize handshake (required before any tools/call)."""
@@ -72,11 +111,10 @@ class CoralService:
             },
         }) + "\n").encode()
 
-        await asyncio.to_thread(self._process.stdin.write, init_request)
-        await asyncio.to_thread(self._process.stdin.flush)
+        await self._send_request(init_request)
 
         try:
-            result = await asyncio.wait_for(future, timeout=10.0)
+            result = await asyncio.wait_for(future, timeout=30.0)
             log.info("MCP initialize OK: %s", result)
         except asyncio.TimeoutError:
             raise RuntimeError("Coral MCP initialize timed out — is coral running correctly?")
@@ -88,8 +126,7 @@ class CoralService:
             "params": {},
         }) + "\n").encode()
 
-        await asyncio.to_thread(self._process.stdin.write, notification)
-        await asyncio.to_thread(self._process.stdin.flush)
+        await self._send_request(notification)
         log.info("MCP handshake complete")
 
         # Step 3: discover available tools so we know the correct tool name
@@ -109,8 +146,7 @@ class CoralService:
             "params": {},
         }) + "\n").encode()
 
-        await asyncio.to_thread(self._process.stdin.write, list_request)
-        await asyncio.to_thread(self._process.stdin.flush)
+        await self._send_request(list_request)
 
         try:
             result = await asyncio.wait_for(future, timeout=10.0)
@@ -150,19 +186,20 @@ class CoralService:
         """
         coral_path = str(Path(CORAL_BIN))
         try:
-            # Remove the source
+            # Remove the source (fails gracefully if it doesn't exist)
             result = await asyncio.to_thread(
                 subprocess.run,
                 [coral_path, "source", "remove", source_name],
                 capture_output=True, text=True, timeout=10,
+                env=self._env,
             )
-            log.info("Coral source remove %s: rc=%s", source_name, result.returncode)
             
-            # Re-add the source (reads token from current os.environ)
+            # Re-add the source (reads token from isolated env)
             result = await asyncio.to_thread(
                 subprocess.run,
                 [coral_path, "source", "add", source_name],
                 capture_output=True, text=True, timeout=15,
+                env=self._env,
             )
             if result.returncode == 0:
                 log.info("Coral source re-added: %s", source_name)
@@ -186,7 +223,7 @@ class CoralService:
                     log.debug("MCP notification: %s", response.get("method"))
                     continue
                 future = self._pending.pop(req_id, None)
-                if future:
+                if future and not future.done():
                     if "error" in response:
                         self._loop.call_soon_threadsafe(
                             future.set_exception,
@@ -220,15 +257,14 @@ class CoralService:
         }) + "\n").encode()
 
         try:
-            await asyncio.to_thread(self._process.stdin.write, request)
-            await asyncio.to_thread(self._process.stdin.flush)
+            await self._send_request(request)
         except Exception as e:
             self._pending.pop(req_id, None)
             log.error("Failed to write query to Coral stdin: %s", e)
             raise RuntimeError(f"Failed to write query to Coral: {e}")
 
         try:
-            raw = await asyncio.wait_for(future, timeout=30.0)
+            raw = await asyncio.wait_for(future, timeout=120.0)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             log.error("Coral query timed out: %s", sql[:80])
@@ -328,4 +364,45 @@ class CoralService:
         return results
 
 
-coral = CoralService()
+class CoralManager:
+    def __init__(self):
+        self._services: dict[int, CoralService] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_service(self, user_id: int, user_tokens: dict[str, str] | None = None) -> CoralService:
+        """Get or create a CoralService instance for the given user."""
+        async with self._lock:
+            if user_id in self._services:
+                svc = self._services[user_id]
+                # Check if the process died unexpectedly (e.g., OOM killer)
+                if svc._process and svc._process.poll() is not None:
+                    log.warning("Coral process for user %d died (exit code %s). Restarting...", user_id, svc._process.returncode)
+                    del self._services[user_id]
+                    
+            if user_id not in self._services:
+                svc = CoralService(user_id=user_id, user_tokens=user_tokens)
+                await svc.start()
+                self._services[user_id] = svc
+            return self._services[user_id]
+
+    async def restart_service(self, user_id: int, user_tokens: dict[str, str] | None = None) -> CoralService:
+        """Restart the CoralService for the given user with new tokens."""
+        async with self._lock:
+            if user_id in self._services:
+                await self._services[user_id].stop()
+                del self._services[user_id]
+            
+            svc = CoralService(user_id=user_id, user_tokens=user_tokens)
+            await svc.start()
+            self._services[user_id] = svc
+            return svc
+
+    async def stop_all(self):
+        """Stop all running CoralService instances."""
+        async with self._lock:
+            for svc in self._services.values():
+                await svc.stop()
+            self._services.clear()
+
+coral_manager = CoralManager()
+

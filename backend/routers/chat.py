@@ -1,8 +1,9 @@
 import json
 import asyncio
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import StreamingResponse
 from services.agent_service import stream_chat_response
+from services.auth import get_current_user
 from logger import get_logger
 
 log = get_logger("devpulse.chat")
@@ -39,14 +40,14 @@ async def _save_message(session_id: int, run_id: int | None, role: str, content:
         log.error("Failed to save chat message: %s", e)
 
 
-async def sse_generator(question: str, session_id: str, run_id: int | None):
+async def sse_generator(question: str, session_id: str, run_id: int | None, user_id: int):
     # Persist the user message
     db_session_id = await _ensure_session(session_id)
     await _save_message(db_session_id, run_id, "user", question)
 
     agent_response = ""
     try:
-        async for event in stream_chat_response(question, session_id):
+        async for event in stream_chat_response(question, session_id, user_id):
             # Accumulate agent response text
             if event["event"] == "token":
                 agent_response += event["data"]
@@ -74,9 +75,10 @@ async def chat_stream(
     q: str = Query(...),
     session_id: str = Query(default="default"),
     run_id: int | None = Query(default=None),
+    user: dict = Depends(get_current_user)
 ):
     return StreamingResponse(
-        sse_generator(q, session_id, run_id),
+        sse_generator(q, session_id, run_id, user["id"]),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

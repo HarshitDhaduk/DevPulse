@@ -8,7 +8,7 @@ from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain.memory import ConversationBufferWindowMemory
 
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from config import settings
 from logger import get_logger
 
@@ -169,10 +169,11 @@ def get_workflow_queries(workflow: str) -> list[dict]:
     return workflows.get(workflow, standup)
 
 
-async def init_schema():
+async def init_schema(user_id: int):
     """Discover actual Coral schema and rebuild prompts."""
     global sql_plan_chain
     try:
+        coral = await coral_manager.get_service(user_id)
         columns = await coral.query(
             "SELECT schema_name, table_name, column_name "
             "FROM coral.columns ORDER BY schema_name, table_name, column_name"
@@ -207,7 +208,9 @@ Output format (JSON array only, no markdown):
         log.warning("Schema discovery failed, using defaults: %s", e)
 
 
-async def _execute_coral_queries(queries: list[dict]) -> dict:
+async def _execute_coral_queries(queries: list[dict], user_id: int) -> dict:
+    coral = await coral_manager.get_service(user_id)
+    
     async def run_one(q: dict):
         try:
             result = await coral.query(q["sql"])
@@ -221,9 +224,9 @@ async def _execute_coral_queries(queries: list[dict]) -> dict:
     return dict(results)
 
 
-async def generate_report(workflow: str = "standup") -> dict:
+async def generate_report(workflow: str, user_id: int) -> dict:
     queries = get_workflow_queries(workflow)
-    raw_data = await _execute_coral_queries(queries)
+    raw_data = await _execute_coral_queries(queries, user_id)
 
     if workflow == "standup":
         system_instructions = "Act as a Scrum Master. Review this data and generate a quick standup agenda. Highlight who is blocked, which PRs need immediate review, and if any new production errors need to be assigned today. Produce: 1) Executive Summary 2) Blockers 3) PRs to Review 4) Urgent Errors."
@@ -263,12 +266,12 @@ def _get_memory(session_id: str) -> ConversationBufferWindowMemory:
     return _memories[session_id]
 
 
-async def stream_chat_response(question: str, session_id: str) -> AsyncGenerator[dict, None]:
+async def stream_chat_response(question: str, session_id: str, user_id: int) -> AsyncGenerator[dict, None]:
     queries = await sql_plan_chain.ainvoke({"question": question})
     yield {"event": "queries", "data": [q["sql"] for q in queries]}
 
     yield {"event": "status", "data": "Executing Coral queries..."}
-    coral_data = await _execute_coral_queries(queries)
+    coral_data = await _execute_coral_queries(queries, user_id)
 
     memory = _get_memory(session_id)
     history = memory.load_memory_variables({})["history"]
@@ -287,7 +290,7 @@ async def stream_chat_response(question: str, session_id: str) -> AsyncGenerator
     yield {"event": "done", "data": ""}
 
 
-async def get_source_status(source_name: str) -> str:
+async def get_source_status(source_name: str, user_id: int) -> str:
     import db.database as database
     conn = database.db
     if conn is None:
@@ -304,7 +307,8 @@ async def get_source_status(source_name: str) -> str:
     return "UNKNOWN"
 
 
-async def run_workflow_template(template: dict, payload: dict) -> dict:
+async def run_workflow_template(template: dict, payload: dict, user_id: int) -> dict:
+    coral = await coral_manager.get_service(user_id)
     resolved_vars = {}
     variables = payload.get("variables", {})
     custom_queries = payload.get("custom_queries", template.get("queries", []))
@@ -356,9 +360,9 @@ async def run_workflow_template(template: dict, payload: dict) -> dict:
 
 
     # 2.5 Validation of variables based on active source health and authorized credentials
-    github_status = await get_source_status("github")
-    slack_status = await get_source_status("slack")
-    linear_status = await get_source_status("linear")
+    github_status = await get_source_status("github", user_id)
+    slack_status = await get_source_status("slack", user_id)
+    linear_status = await get_source_status("linear", user_id)
 
     # A. Validate GitHub parameters if required by this template (hasowner or repo)
     owner = resolved_vars.get("owner")

@@ -3,7 +3,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from db.database import init_db
 from jobs.scheduler import start_scheduler
 from routers import report, query, chat, sources, settings, workflows, auth
@@ -29,19 +29,7 @@ async def lifespan(app: FastAPI):
     from db.database import init_db, close_db
     log.info("Calling init_db...")
     await init_db()
-    log.info("init_db complete. Calling coral.start()...")
-    await coral.start()
-    log.info("coral.start() complete. Calling init_schema()...")
-    from services.agent_service import init_schema
-    await init_schema()
-    log.info("init_schema complete. Calling check_sources()...")
-    # Probe all sources on startup and persist status to DB
-    try:
-        from routers.sources import check_sources
-        await check_sources()
-        log.info("check_sources complete.")
-    except Exception as e:
-        log.warning("Startup source check failed (non-fatal): %s", e)
+    log.info("init_db complete.")
     log.info("Starting scheduler...")
     scheduler = start_scheduler()
     log.info("Scheduler started.")
@@ -52,7 +40,7 @@ async def lifespan(app: FastAPI):
         pass
     finally:
         log.info("Shutting down...")
-        await coral.stop()
+        await coral_manager.stop_all()
         scheduler.shutdown()
         await close_db()
 
