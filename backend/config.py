@@ -33,19 +33,37 @@ settings = Settings()
 # Auto-generate encryption key and JWT secret if not provided and save to .env
 import secrets
 import os
+import logging
 from cryptography.fernet import Fernet
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 env_updates = []
+_generated: list[str] = []
 
 if not settings.ENCRYPTION_KEY:
     settings.ENCRYPTION_KEY = Fernet.generate_key().decode()
     env_updates.append(f"\nENCRYPTION_KEY={settings.ENCRYPTION_KEY}")
+    _generated.append("ENCRYPTION_KEY")
 
 if not settings.JWT_SECRET:
     settings.JWT_SECRET = secrets.token_hex(32)
     env_updates.append(f"\nJWT_SECRET={settings.JWT_SECRET}")
+    _generated.append("JWT_SECRET")
 
 if env_updates and os.path.exists(env_path):
     with open(env_path, "a") as f:
         f.writelines(env_updates)
+elif _generated:
+    # No .env to write back to — typical in a container, where the generated
+    # values live only for this process. Every restart or new instance then
+    # gets different keys, which signs out all users (JWT_SECRET) and makes
+    # every token already in user_settings permanently undecryptable
+    # (ENCRYPTION_KEY). Loud, because it fails silently at runtime otherwise.
+    logging.getLogger("devpulse.config").critical(
+        "%s auto-generated but NOT persisted (no .env at %s). These values are "
+        "ephemeral: on restart all sessions are invalidated and any integration "
+        "token already stored becomes permanently undecryptable. Set them "
+        "explicitly via the environment or a secret manager.",
+        " and ".join(_generated),
+        env_path,
+    )

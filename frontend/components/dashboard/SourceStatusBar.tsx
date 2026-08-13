@@ -39,13 +39,14 @@ export function SourceStatusBar() {
   }, []);
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div role="status" aria-label="Integration source status" className="flex flex-wrap gap-2">
       {sources.map((s) => (
         <div
           key={s.source_name}
           className="flex items-center gap-1.5 rounded border border-border bg-bg2 px-3 py-1 text-xs"
         >
           <span
+            aria-hidden="true"
             className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[s.status] ?? STATUS_DOT.UNKNOWN}`}
           />
           <span className="text-text capitalize">{s.display_name}</span>

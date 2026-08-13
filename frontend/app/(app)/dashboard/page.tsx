@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { SourceStatusBar } from "@/components/dashboard/SourceStatusBar";
@@ -77,9 +77,31 @@ export default function DashboardHubPage() {
 
   // Create Modal States
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const createDialogRef = useRef<HTMLDivElement>(null);
+  const createTriggerRef = useRef<HTMLElement | null>(null);
   const [jsonInput, setJsonInput] = useState(JSON.stringify(STARTER_TEMPLATE, null, 2));
   const [modalError, setModalError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Create-workspace dialog: focus in on open, Escape to close, focus restored
+  // to the trigger on close.
+  useEffect(() => {
+    if (!showCreateModal) return;
+    createTriggerRef.current = document.activeElement as HTMLElement | null;
+    createDialogRef.current?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowCreateModal(false);
+        setModalError(null);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      createTriggerRef.current?.focus?.();
+    };
+  }, [showCreateModal]);
 
   useEffect(() => {
     async function loadWorkflows() {
@@ -142,6 +164,7 @@ export default function DashboardHubPage() {
             </p>
           </div>
           <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
             className="shrink-0 self-start md:self-center px-4 py-2.5 rounded-lg bg-coral hover:bg-coral2 text-white font-bold text-xs transition-colors shadow-lg shadow-coral/10 hover:shadow-coral/20 flex items-center gap-2 glow-coral"
           >
@@ -154,7 +177,7 @@ export default function DashboardHubPage() {
       <SourceStatusBar />
 
       {error && (
-        <div className="p-4 bg-coral/10 border border-coral/20 text-coral rounded-xl text-sm">
+        <div role="alert" className="p-4 bg-coral/10 border border-coral/20 text-coral rounded-xl text-sm">
           ⚠️ {error}
         </div>
       )}
@@ -225,17 +248,26 @@ export default function DashboardHubPage() {
       {/* Create Custom Workspace Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="relative w-full max-w-4xl h-[85vh] rounded-2xl border border-border bg-bg2 flex flex-col overflow-hidden shadow-2xl animate-scaleIn">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-workspace-title"
+            ref={createDialogRef}
+            tabIndex={-1}
+            className="relative w-full max-w-4xl h-[85vh] rounded-2xl border border-border bg-bg2 flex flex-col overflow-hidden shadow-2xl animate-scaleIn"
+          >
             {/* Modal Header */}
             <div className="shrink-0 border-b border-border bg-bg3 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xl">✨</span>
                 <div>
-                  <h3 className="text-base font-bold font-display text-text">Create Custom Workspace</h3>
+                  <h3 id="create-workspace-title" className="text-base font-bold font-display text-text">Create Custom Workspace</h3>
                   <p className="text-[10px] text-text3 font-mono mt-0.5">Deploy JSON Template Configuration</p>
                 </div>
               </div>
               <button
+                type="button"
+                aria-label="Close create workspace dialog"
                 onClick={() => {
                   setShowCreateModal(false);
                   setModalError(null);
@@ -269,8 +301,9 @@ export default function DashboardHubPage() {
               {/* Right Side: Code Editor */}
               <div className="flex-1 flex flex-col p-6 space-y-4 bg-bg1 min-w-0">
                 <div className="flex-1 flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold font-mono text-text3 uppercase tracking-wider">JSON Configuration Spec</label>
+                  <label htmlFor="workflow-json-spec" className="text-[10px] font-bold font-mono text-text3 uppercase tracking-wider">JSON Configuration Spec</label>
                   <textarea
+                    id="workflow-json-spec"
                     value={jsonInput}
                     onChange={(e) => setJsonInput(e.target.value)}
                     className="flex-1 rounded-xl border border-border2 bg-bg3 px-4 py-3 text-xs outline-none focus:border-teal transition-all font-mono leading-relaxed resize-none text-text"
@@ -279,7 +312,7 @@ export default function DashboardHubPage() {
                 </div>
 
                 {modalError && (
-                  <div className="p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-xs font-mono">
+                  <div role="alert" className="p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-xs font-mono">
                     ❌ {modalError}
                   </div>
                 )}
@@ -287,6 +320,7 @@ export default function DashboardHubPage() {
                 {/* Footer Buttons */}
                 <div className="shrink-0 flex items-center justify-end gap-3 pt-2">
                   <button
+                    type="button"
                     onClick={() => {
                       setShowCreateModal(false);
                       setModalError(null);
@@ -297,8 +331,10 @@ export default function DashboardHubPage() {
                     Cancel
                   </button>
                   <button
+                    type="button"
                     onClick={handleCreateWorkflow}
                     disabled={saving}
+                    aria-busy={saving}
                     className="px-5 py-2 rounded-lg bg-teal hover:bg-teal2 text-white font-bold text-xs disabled:opacity-50 transition-colors"
                   >
                     {saving ? "Deploying..." : "⚡ Deploy Workspace"}

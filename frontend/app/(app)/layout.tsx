@@ -8,7 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div role="status" aria-live="polite" className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-coral flex items-center justify-center text-sm font-bold font-mono text-white animate-pulse">
             DP

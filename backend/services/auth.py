@@ -41,8 +41,9 @@ def verify_jwt(token: str) -> dict:
 async def verify_google_token(credential: str) -> dict:
     """Verify a Google ID token and return user info."""
     try:
-        log.info("Verifying Google token (length=%d, prefix=%s...)", len(credential), credential[:20])
-        log.info("Using GOOGLE_CLIENT_ID: %s", settings.GOOGLE_CLIENT_ID[:20] + "...")
+        # Deliberately does not log any part of the credential — it is a
+        # bearer-equivalent value and log sinks are not a secret store.
+        log.info("Verifying Google ID token")
         idinfo = id_token.verify_oauth2_token(
             credential,
             google_requests.Request(),
@@ -58,10 +59,19 @@ async def verify_google_token(credential: str) -> dict:
         }
     except Exception as e:
         log.error("Google token verification failed: %s: %s", type(e).__name__, e)
-        raise HTTPException(status_code=401, detail=f"Invalid Google credential: {e}")
+        raise HTTPException(status_code=401, detail="Invalid Google credential.")
 
 
 import bcrypt
+
+# bcrypt rejects inputs longer than 72 bytes with ValueError (>= 4.0), which
+# previously surfaced as an unhandled HTTP 500 on register and login. Truncate
+# symmetrically on both paths so existing hashes keep verifying.
+BCRYPT_MAX_BYTES = 72
+
+
+def _bcrypt_bytes(password: str) -> bytes:
+    return password.encode()[:BCRYPT_MAX_BYTES]
 
 async def get_or_create_google_user(google_id: str, email: str, name: str, picture: str) -> dict:
     """Find or create a user in the database via Google OAuth. Returns user dict with id."""
@@ -112,7 +122,7 @@ async def register_user_email(email: str, password: str, name: str) -> dict:
             raise HTTPException(status_code=400, detail="Email already registered")
 
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode(), salt).decode()
+    hashed = bcrypt.hashpw(_bcrypt_bytes(password), salt).decode()
     dummy_google_id = f"email:{email}"
 
     cursor = await conn.execute(
@@ -142,7 +152,7 @@ async def login_user_email(email: str, password: str) -> dict:
     if not row or not row["password_hash"]:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not bcrypt.checkpw(password.encode(), row["password_hash"].encode()):
+    if not bcrypt.checkpw(_bcrypt_bytes(password), row["password_hash"].encode()):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     return dict(row)

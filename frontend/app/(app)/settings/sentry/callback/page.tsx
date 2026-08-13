@@ -3,10 +3,12 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { consumeOAuthState, OAUTH_STATE_ERROR } from "@/lib/oauthState";
 
 function CallbackHandler() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code");
+  const state = searchParams.get("state");
   
   const [error, setError] = useState<string | null>(null);
   const called = useRef(false);
@@ -14,6 +16,13 @@ function CallbackHandler() {
   useEffect(() => {
     if (!code) {
       setError("No authorization code found in URL.");
+      return;
+    }
+
+    // Reject callbacks that did not originate from this browser session,
+    // otherwise an attacker-supplied code could be linked to this account.
+    if (!consumeOAuthState("sentry", state)) {
+      setError(OAUTH_STATE_ERROR);
       return;
     }
 
@@ -34,11 +43,11 @@ function CallbackHandler() {
       .catch((e: Error) => {
         setError(e.message || "Failed to connect to Sentry");
       });
-  }, [code]);
+  }, [code, state]);
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full space-y-4 p-8">
+      <div role="alert" className="flex flex-col items-center justify-center h-full space-y-4 p-8">
         <div className="w-12 h-12 rounded-full bg-coral/20 flex items-center justify-center text-coral">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

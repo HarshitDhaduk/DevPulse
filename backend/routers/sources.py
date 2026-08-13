@@ -33,7 +33,7 @@ async def _sync_source_status(name: str, status: str, error: str | None = None):
 
 
 @router.get("/sources")
-async def get_sources():
+async def get_sources(user: dict = Depends(get_current_user)):
     """Return current source status from DB (fast, no live probe)."""
     conn = database.db
     if conn is None:

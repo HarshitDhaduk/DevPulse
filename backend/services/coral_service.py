@@ -4,12 +4,26 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
 from logger import get_logger
 
 log = get_logger("devpulse.coral")
+
+# DevPulse's own secrets. Coral is a third-party binary that only needs the
+# per-source integration tokens, so these are stripped from its environment.
+_SECRET_ENV_KEYS = {
+    "GOOGLE_API_KEY",
+    "GOOGLE_CLIENT_ID",
+    "JWT_SECRET",
+    "ENCRYPTION_KEY",
+    "GITHUB_CLIENT_SECRET",
+    "SLACK_CLIENT_SECRET",
+    "LINEAR_CLIENT_SECRET",
+    "SENTRY_CLIENT_SECRET",
+}
 
 # Coral v0.3.0: MCP command is `mcp-stdio`, SQL command is `sql`
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -29,12 +43,16 @@ class CoralService:
         self._write_lock = asyncio.Lock()
         self._read_thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._env = os.environ.copy()
-        
+        # Don't hand DevPulse's own secrets to the Coral subprocess.
+        self._env = {
+            k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS
+        }
+
         # Isolate the Coral configuration directory per user to prevent cross-user state leakage
-        # MUST use /tmp (in-memory) instead of DB_DIR (GCS Fuse) because Coral uses SQLite internally
-        # which will hang/corrupt on GCS Fuse due to lack of POSIX file locks.
-        base_dir = "/tmp"
+        # MUST use the system temp dir (in-memory) instead of DB_DIR (GCS Fuse) because Coral
+        # uses SQLite internally which will hang/corrupt on GCS Fuse due to lack of POSIX
+        # file locks. On Linux/Cloud Run gettempdir() is /tmp, matching the previous behaviour.
+        base_dir = tempfile.gettempdir()
         user_config_dir = str(Path(base_dir) / f".coral_user_{self._user_id}")
         os.makedirs(user_config_dir, exist_ok=True)
         self._env["HOME"] = user_config_dir
@@ -117,6 +135,7 @@ class CoralService:
             result = await asyncio.wait_for(future, timeout=30.0)
             log.info("MCP initialize OK: %s", result)
         except asyncio.TimeoutError:
+            self._pending.pop(req_id, None)
             raise RuntimeError("Coral MCP initialize timed out — is coral running correctly?")
 
         # Step 2: send the initialized notification (no response expected)
@@ -155,6 +174,7 @@ class CoralService:
             # Give the server a moment to fully initialize after handshake
             await asyncio.sleep(0.5)
         except asyncio.TimeoutError:
+            self._pending.pop(req_id, None)
             log.warning("tools/list timed out — continuing anyway")
 
     async def stop(self):

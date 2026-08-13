@@ -15,16 +15,20 @@ import db.database as database
 log = get_logger("devpulse.settings")
 router = APIRouter()
 
-# All setting keys that can be stored per-user
-VALID_KEYS = {
-    "GITHUB_TOKEN", "GITHUB_OWNER",
-    "LINEAR_API_KEY",
-    "SENTRY_TOKEN", "SENTRY_ORG",
-    "SLACK_TOKEN",
-}
+# Keys written to user_settings by this module:
+#   GITHUB_TOKEN, GITHUB_OWNER, LINEAR_API_KEY, SENTRY_TOKEN, SENTRY_ORG,
+#   SLACK_TOKEN, and the OAuth bookkeeping keys
+#   {SLACK,LINEAR,SENTRY}_REFRESH_TOKEN / _EXPIRES_AT.
+# Secrets are never returned by GET /settings — it reports presence only.
 
-# Keys that are secrets (should be masked in GET responses)
-SECRET_KEYS = {"GITHUB_TOKEN", "LINEAR_API_KEY", "SENTRY_TOKEN", "SLACK_TOKEN"}
+
+def _oauth_redirect(path: str) -> str:
+    """Default OAuth redirect_uri, derived from the configured frontend URL.
+
+    Only used when the client omits redirect_uri; these used to be hard-coded
+    to http://localhost:3000, which fails the token exchange in production.
+    """
+    return f"{settings.FRONTEND_URL.rstrip('/')}{path}"
 
 
 class SettingsUpdate(BaseModel):
@@ -87,10 +91,6 @@ async def get_user_tokens(user_id: int) -> dict[str, str]:
             log.warning("Failed to decrypt %s for user %s", row["setting_key"], user_id)
     return result
 
-
-def inject_user_tokens(tokens: dict[str, str]):
-    # Deprecated: tokens are now passed directly to CoralManager
-    pass
 
 async def ensure_coral_tokens_loaded(user_id: int):
     """Ensure the user's tokens are loaded into their isolated Coral service."""
@@ -161,9 +161,12 @@ async def connect_settings(req: SettingsUpdate, user: dict = Depends(get_current
                 
         log.info("Coral refreshed and restarted with user %s tokens", user_id)
         return {"status": "success", "message": "Settings saved and Coral restarted."}
-    except Exception as e:
-        log.error("Error refreshing Coral: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Error refreshing Coral for user %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Settings were saved, but the data engine could not be restarted. Please retry from Settings.",
+        )
 
 class GitHubOAuthRequest(BaseModel):
     code: str
@@ -226,9 +229,12 @@ async def github_oauth(req: GitHubOAuthRequest, user: dict = Depends(get_current
         await coral_svc.refresh_source("github")
         log.info("Coral restarted with new GitHub OAuth token for user %s", user_id)
         return {"status": "success", "message": "GitHub connected successfully!"}
-    except Exception as e:
-        log.error("Failed to restart Coral: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Failed to restart Coral for user %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Connected, but the data engine could not be restarted. Please retry from Settings.",
+        )
 
 class SlackOAuthRequest(BaseModel):
     code: str
@@ -248,7 +254,7 @@ async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_u
                 "client_id": settings.SLACK_CLIENT_ID,
                 "client_secret": settings.SLACK_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/slack/callback",
+                "redirect_uri": req.redirect_uri or _oauth_redirect("/settings/slack/callback"),
             }
         )
     
@@ -284,9 +290,12 @@ async def slack_oauth(req: SlackOAuthRequest, user: dict = Depends(get_current_u
         await coral_svc.refresh_source("slack")
         log.info("Coral restarted with new Slack OAuth token for user %s", user_id)
         return {"status": "success", "message": "Slack connected successfully!"}
-    except Exception as e:
-        log.error("Failed to restart Coral: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Failed to restart Coral for user %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Connected, but the data engine could not be restarted. Please retry from Settings.",
+        )
 
 class LinearOAuthRequest(BaseModel):
     code: str
@@ -308,7 +317,7 @@ async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current
                 "client_id": settings.LINEAR_CLIENT_ID,
                 "client_secret": settings.LINEAR_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/linear/callback",
+                "redirect_uri": req.redirect_uri or _oauth_redirect("/settings/linear/callback"),
             }
         )
     
@@ -343,9 +352,12 @@ async def linear_oauth(req: LinearOAuthRequest, user: dict = Depends(get_current
         await coral_svc.refresh_source("linear")
         log.info("Coral restarted with new Linear OAuth token for user %s", user_id)
         return {"status": "success", "message": "Linear connected successfully!"}
-    except Exception as e:
-        log.error("Failed to restart Coral: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Failed to restart Coral for user %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Connected, but the data engine could not be restarted. Please retry from Settings.",
+        )
 
 class SentryOAuthRequest(BaseModel):
     code: str
@@ -366,7 +378,7 @@ async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current
                 "client_id": settings.SENTRY_CLIENT_ID,
                 "client_secret": settings.SENTRY_CLIENT_SECRET,
                 "code": req.code,
-                "redirect_uri": req.redirect_uri or "http://localhost:3000/settings/sentry/callback",
+                "redirect_uri": req.redirect_uri or _oauth_redirect("/settings/sentry/callback"),
             }
         )
     
@@ -472,6 +484,9 @@ async def sentry_oauth(req: SentryOAuthRequest, user: dict = Depends(get_current
         await coral_svc.refresh_source("sentry")
         log.info("Coral restarted with new Sentry OAuth token for user %s", user_id)
         return {"status": "success", "message": "Sentry connected successfully with full permissions!"}
-    except Exception as e:
-        log.error("Failed to restart Coral: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Failed to restart Coral for user %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Connected, but the data engine could not be restarted. Please retry from Settings.",
+        )

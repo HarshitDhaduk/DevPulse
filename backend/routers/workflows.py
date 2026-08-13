@@ -3,7 +3,9 @@ import json
 from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Dict, Any
 from services.agent_service import run_workflow_template
+from services.auth import get_current_user
 from services.coral_service import coral_manager
+from routers.settings import ensure_coral_tokens_loaded, get_user_tokens
 from config import settings
 from logger import get_logger
 
@@ -13,7 +15,10 @@ router = APIRouter()
 TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
 
 @router.post("/workflows")
-def create_workflow(template: Dict[str, Any] = Body(...)):
+def create_workflow(
+    template: Dict[str, Any] = Body(...),
+    user: dict = Depends(get_current_user),
+):
     required_fields = ["id", "name", "description", "icon", "category", "variables", "ui_layout", "queries"]
     for field in required_fields:
         if field not in template:
@@ -30,11 +35,12 @@ def create_workflow(template: Dict[str, Any] = Body(...)):
         with open(template_path, "w", encoding="utf-8") as f:
             json.dump(template, f, indent=2, ensure_ascii=False)
         return {"status": "success", "template": template}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save template: {str(e)}")
+    except Exception:
+        log.exception("Failed to save template %s for user %s", workflow_id, user["id"])
+        raise HTTPException(status_code=500, detail="Failed to save template.")
 
 @router.get("/workflows")
-def list_workflows():
+def list_workflows(user: dict = Depends(get_current_user)):
     if not os.path.exists(TEMPLATES_DIR):
         return []
     templates = []
@@ -47,11 +53,8 @@ def list_workflows():
                 pass
     return templates
 
-from services.auth import get_current_user
-
 @router.get("/workflows/discover")
 async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
-    from routers.settings import get_user_tokens, ensure_coral_tokens_loaded
     user_id = user["id"]
     await ensure_coral_tokens_loaded(user_id)
     tokens = await get_user_tokens(user_id)
@@ -63,10 +66,6 @@ async def discover_workflow_parameters(user: dict = Depends(get_current_user)):
     has_sentry = bool(tokens.get("SENTRY_TOKEN"))
 
     connected_count = sum([has_github, has_linear, has_slack, has_sentry])
-
-    # Ensure Coral has this user's tokens loaded before querying
-    from routers.settings import ensure_coral_tokens_loaded
-    await ensure_coral_tokens_loaded(user_id)
 
     # Only query Coral for sources the current user has tokens for
     coral_svc = await coral_manager.get_service(user_id)
@@ -129,40 +128,43 @@ def get_friendly_error_message(e: Exception) -> str:
         # Strip detail to avoid raw sql leaks, keep description readable
         clean_msg = error_msg.split("Detail:")[0].replace("Coral query error:", "").strip()
         return f"Database query failed due to a schema mismatch: {clean_msg}"
-    return f"An unexpected error occurred while running the workspace. Details: {error_msg}. Please check your settings and try again."
+    # Do not echo raw exception text back to the client — it can carry SQL,
+    # filesystem paths and upstream provider responses. The full error is logged.
+    return "An unexpected error occurred while running the workspace. Please check your settings and try again."
 
 @router.post("/workflows/{workflow_id}/run")
 async def run_workflow(workflow_id: str, payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
-    from routers.settings import ensure_coral_tokens_loaded
     user_id = user["id"]
     await ensure_coral_tokens_loaded(user_id)
 
-    template_path = os.path.join(TEMPLATES_DIR, f"{workflow_id}.json")
+    # Reject ids that could escape TEMPLATES_DIR before touching the filesystem.
+    safe_workflow_id = "".join(c for c in workflow_id if c.isalnum() or c in "-_")
+    if not safe_workflow_id or safe_workflow_id != workflow_id:
+        raise HTTPException(status_code=404, detail="Workflow template not found")
+
+    template_path = os.path.join(TEMPLATES_DIR, f"{safe_workflow_id}.json")
     if not os.path.exists(template_path):
         raise HTTPException(status_code=404, detail="Workflow template not found")
-    
+
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             template = json.load(f)
-    except Exception as e:
+    except Exception:
+        log.exception("Failed to load template %s", safe_workflow_id)
         raise HTTPException(status_code=500, detail="Failed to load template specification file.")
-        
+
     import time
     start = time.time()
     status = "SUCCESS"
     result = None
 
-    # Ensure Coral has this user's tokens loaded before querying
-    from routers.settings import ensure_coral_tokens_loaded
-    await ensure_coral_tokens_loaded(user.get("id"))
-
     try:
         result = await run_workflow_template(template, payload, user_id)
     except ValueError as ve:
+        status = "ERROR"
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        log.exception("Workflow run failed [%s] for user %s", safe_workflow_id, user_id)
         status = "ERROR"
         raise HTTPException(status_code=500, detail=get_friendly_error_message(e))
     finally:
@@ -286,14 +288,17 @@ async def get_run_detail(run_id: int, user: dict = Depends(get_current_user)):
 
 @router.get("/workflows/history/{run_id}/chat")
 async def get_run_chat(run_id: int, user: dict = Depends(get_current_user)):
-    """Return all chat messages associated with a specific run."""
+    """Return all chat messages associated with a specific run owned by the caller."""
     from db.database import db
-    
+
+    # Scope by the owning run's user_id — without this join any authenticated
+    # user could read another user's conversation by enumerating run_id.
     rows = await db.execute_fetchall(
-        """SELECT id, role, content, created_at
-           FROM chat_messages
-           WHERE run_id = ? AND status = 'ACTIVE'
-           ORDER BY created_at ASC""",
-        (run_id,),
+        """SELECT m.id, m.role, m.content, m.created_at
+           FROM chat_messages m
+           JOIN workflow_runs r ON r.id = m.run_id
+           WHERE m.run_id = ? AND r.user_id = ? AND m.status = 'ACTIVE'
+           ORDER BY m.created_at ASC""",
+        (run_id, user["id"]),
     )
     return {"messages": [dict(r) for r in rows]}

@@ -80,3 +80,26 @@ body {
   transform: translateY(-2px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
+
+/* ── Reduced motion ──
+   The UI leans on animate-spin / animate-pulse / animate-bounce for loading
+   states. Honour the OS-level preference: motion is suppressed, but nothing
+   is hidden, so spinners still read as "busy" via their aria-live regions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Visible keyboard focus ──
+   Several controls set `outline-none` for aesthetics; restore a clear focus
+   ring for keyboard users so tabbing through the app stays traceable. */
+:focus-visible {
+  outline: 2px solid var(--color-teal);
+  outline-offset: 2px;
+}
