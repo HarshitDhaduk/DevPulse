@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS reports (
                         CHECK (trigger IN ('manual', 'scheduled', 'chat')),
   status        TEXT    NOT NULL DEFAULT 'ACTIVE'
                         CHECK (status IN ('ACTIVE', 'ARCHIVED', 'DELETED')),
+  user_id       INTEGER REFERENCES users (id) ON DELETE SET NULL,
   generated_at  TEXT    NOT NULL,               -- ISO-8601 UTC from Gemini pipeline
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -84,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_workflow_runs_time   ON workflow_runs (created_at
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   session_key   TEXT    NOT NULL UNIQUE,        -- UUID passed by frontend
+  user_id       INTEGER REFERENCES users (id) ON DELETE CASCADE,
   title         TEXT,                           -- auto-generated from first message
   status        TEXT    NOT NULL DEFAULT 'ACTIVE'
                         CHECK (status IN ('ACTIVE', 'CLOSED', 'DELETED')),
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS saved_queries (
   description   TEXT,
   sql           TEXT    NOT NULL,
   tags          TEXT,                           -- JSON array of tag strings
+  user_id       INTEGER REFERENCES users (id) ON DELETE CASCADE,
   last_run_at   TEXT,
   run_count     INTEGER NOT NULL DEFAULT 0,
   status        TEXT    NOT NULL DEFAULT 'ACTIVE'
@@ -135,6 +138,7 @@ CREATE TABLE IF NOT EXISTS saved_queries (
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
 
 -- -------------------------------------------------------------
 -- query_history
@@ -152,6 +156,7 @@ CREATE TABLE IF NOT EXISTS query_history (
   error_message TEXT,                           -- populated on failure
   session_id    INTEGER REFERENCES chat_sessions (id) ON DELETE SET NULL,
   report_id     INTEGER REFERENCES reports (id) ON DELETE SET NULL,
+  user_id       INTEGER REFERENCES users (id) ON DELETE CASCADE,
   status        TEXT    NOT NULL DEFAULT 'SUCCESS'
                         CHECK (status IN ('SUCCESS', 'ERROR', 'TIMEOUT')),
   executed_at   TEXT    NOT NULL DEFAULT (datetime('now')),

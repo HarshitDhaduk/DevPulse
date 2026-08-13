@@ -125,9 +125,11 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {isRegister && (
               <div>
-                <label className="block text-xs text-text3 mb-1">Name</label>
+                <label htmlFor="signup-name" className="block text-xs text-text3 mb-1">Name</label>
                 <input
+                  id="signup-name"
                   type="text"
+                  autoComplete="name"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -138,9 +140,11 @@ export function LoginPage() {
             )}
             
             <div>
-              <label className="block text-xs text-text3 mb-1">Email</label>
+              <label htmlFor="auth-email" className="block text-xs text-text3 mb-1">Email</label>
               <input
+                id="auth-email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -150,9 +154,11 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-text3 mb-1">Password</label>
+              <label htmlFor="auth-password" className="block text-xs text-text3 mb-1">Password</label>
               <input
+                id="auth-password"
                 type="password"
+                autoComplete={isRegister ? "new-password" : "current-password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -164,6 +170,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
+              aria-busy={isLoading}
               className="w-full bg-teal hover:bg-teal/90 text-bg font-semibold py-2.5 rounded-lg transition-all text-sm disabled:opacity-50 mt-2"
             >
               {isLoading ? "Please wait..." : (isRegister ? "Sign up" : "Sign in")}
@@ -192,7 +199,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <div className="w-full p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-xs text-center">
+            <div role="alert" className="w-full p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-xs text-center">
               {error}
             </div>
           )}

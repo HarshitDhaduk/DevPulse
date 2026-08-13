@@ -1,0 +1,28 @@
+# Mirrors .gcloudignore so `docker build` and `gcloud run deploy --source`
+# produce the same image contents.
+.git
+.gitignore
+.venv
+__pycache__
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Secrets — the Dockerfile does `COPY . .`, so anything left here is baked
+# into an image layer and readable by anyone who can pull the image.
+.env
+.env.*
+!.env.example
+
+# Local SQLite database (contains user records and encrypted integration tokens)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Local-only helpers
+scratch/
+tests/
+.pytest_cache/
+Dockerfile
+.dockerignore

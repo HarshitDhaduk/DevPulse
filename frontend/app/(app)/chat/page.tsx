@@ -84,7 +84,11 @@ export default function ChatPage() {
       </div>
 
       <div className="flex gap-2 shrink-0">
+        <label htmlFor="chat-input" className="sr-only">
+          Ask about your engineering health
+        </label>
         <input
+          id="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
@@ -92,8 +96,10 @@ export default function ChatPage() {
           className="flex-1 rounded-lg border border-border2 bg-bg2 px-4 py-2 text-sm outline-none focus:border-coral transition-colors placeholder:text-text3"
         />
         <button
+          type="button"
           onClick={send}
           disabled={streaming || !input.trim()}
+          aria-busy={streaming}
           className="rounded-lg bg-coral px-4 py-2 text-sm font-medium hover:bg-coral2 disabled:opacity-50 transition-colors text-white"
         >
           Send

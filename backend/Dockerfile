@@ -2,6 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Ensure stdout/stderr are unbuffered so we don't lose tracebacks in Cloud Logging
+ENV PYTHONUNBUFFERED=1
+
 # Install curl (for the installation script) and other system dependencies
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
@@ -18,6 +21,9 @@ COPY . .
 
 # Cloud Run defaults to PORT 8080. We map our Uvicorn server to this port.
 ENV PORT=8080
+
+# Configure the database to be stored in the persistent volume mount
+ENV DB_DIR=/app/db-data
 
 # Run Uvicorn when the container starts
 CMD uvicorn main:app --host 0.0.0.0 --port $PORT

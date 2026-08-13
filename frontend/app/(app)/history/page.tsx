@@ -98,6 +98,7 @@ export default function HistoryPage() {
             {/* Filter */}
             {availableWorkflows.length > 1 && (
               <select
+                aria-label="Filter runs by workflow"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="bg-bg2 border border-border text-text text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-coral/50 font-mono"

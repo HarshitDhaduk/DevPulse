@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { createOAuthState } from "@/lib/oauthState";
 
 interface IntegrationConfig {
   id: string;
@@ -224,7 +225,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center h-full">
+      <div role="status" aria-live="polite" className="p-8 flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-coral/20 flex items-center justify-center animate-pulse">
             <svg className="w-4 h-4 text-coral" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -265,7 +266,7 @@ export default function SettingsPage() {
 
       {/* Global error */}
       {messages._global && (
-        <div className="p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-sm">
+        <div role="alert" className="p-3 bg-coral/10 border border-coral/20 text-coral rounded-lg text-sm">
           {messages._global.text}
         </div>
       )}
@@ -304,7 +305,10 @@ export default function SettingsPage() {
                     </span>
                   )}
                   <button
+                    type="button"
                     onClick={() => setExpandedGuide(isExpanded ? null : integration.id)}
+                    aria-expanded={isExpanded}
+                    aria-label={`How to get a ${integration.name} token`}
                     className="text-xs text-devblue hover:text-devblue/80 transition-colors font-mono flex items-center gap-1"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -375,7 +379,7 @@ export default function SettingsPage() {
                       </div>
                     ))}
                     <div>
-                      <label className="block text-xs text-text3 mb-1 flex justify-between">
+                      <label className="text-xs text-text3 mb-1 flex justify-between">
                         <span>{integration.id === "linear" ? "API Key" : integration.id === "github" ? "Personal Access Token" : "Auth Token"}</span>
                         <span className="text-teal flex items-center gap-1">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -390,6 +394,7 @@ export default function SettingsPage() {
                     </div>
                     {msg && (
                       <div
+                        role="alert"
                         className={`p-2.5 rounded-lg text-xs ${
                           msg.type === "success"
                             ? "bg-teal/10 border border-teal/20 text-teal"
@@ -427,7 +432,7 @@ export default function SettingsPage() {
 
                 {/* Token field */}
                 <div>
-                  <label className="block text-xs text-text3 mb-1 flex justify-between">
+                  <label className="text-xs text-text3 mb-1 flex justify-between">
                     <span>{integration.id === "linear" ? "API Key" : integration.id === "github" ? "Personal Access Token" : "Auth Token"}</span>
                     {isConfigured && (
                       <span className="text-teal flex items-center gap-1">
@@ -454,6 +459,7 @@ export default function SettingsPage() {
                 {/* Status message */}
                 {msg && (
                   <div
+                    role="alert"
                     className={`p-2.5 rounded-lg text-xs ${
                       msg.type === "success"
                         ? "bg-teal/10 border border-teal/20 text-teal"
@@ -466,8 +472,10 @@ export default function SettingsPage() {
 
                 {/* Save button */}
                 <button
+                  type="button"
                   onClick={() => handleSaveIntegration(integration)}
                   disabled={isSaving}
+                  aria-busy={isSaving}
                   className="w-full bg-bg3 hover:bg-border border border-border hover:border-border2 text-text font-medium py-2 rounded-lg transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSaving ? (
@@ -496,7 +504,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <a
-                      href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=repo,read:org`}
+                      href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=repo,read:org&state=${createOAuthState("github")}`}
                       className="w-full bg-[#24292F] hover:bg-[#24292F]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                     >
                       <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
@@ -516,7 +524,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_SLACK_CLIENT_ID ? (
                       <a
-                        href={`https://slack.com/oauth/v2/authorize?client_id=${process.env.NEXT_PUBLIC_SLACK_CLIENT_ID}&user_scope=channels:read,channels:history,users:read,groups:read&redirect_uri=${encodeURIComponent(`${origin}/settings/slack/callback`)}`}
+                        href={`https://slack.com/oauth/v2/authorize?client_id=${process.env.NEXT_PUBLIC_SLACK_CLIENT_ID}&user_scope=channels:read,channels:history,users:read,groups:read&redirect_uri=${encodeURIComponent(`${origin}/settings/slack/callback`)}&state=${createOAuthState("slack")}`}
                         className="w-full bg-[#4A154B] hover:bg-[#4A154B]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.523-2.522v-2.522h2.523zM15.165 17.688a2.527 2.527 0 0 1-2.523-2.523 2.526 2.526 0 0 1 2.523-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.522h-6.313z" fill="currentColor"/></svg>
@@ -541,7 +549,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID ? (
                       <a
-                        href={`https://linear.app/oauth/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/linear/callback`)}&scope=read`}
+                        href={`https://linear.app/oauth/authorize?response_type=code&client_id=${process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/linear/callback`)}&scope=read&state=${createOAuthState("linear")}`}
                         className="w-full bg-[#5E6AD2] hover:bg-[#5E6AD2]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.001 0c6.626 0 11.999 5.372 11.999 11.999 0 6.627-5.373 12-11.999 12-6.628 0-12-5.373-12-12C.001 5.372 5.373 0 12.001 0zm0 3.238c-4.839 0-8.761 3.92-8.761 8.761 0 4.84 3.922 8.761 8.761 8.761 4.839 0 8.761-3.921 8.761-8.761 0-4.841-3.922-8.761-8.761-8.761zm-4.638 4.638l9.277 9.276a1.455 1.455 0 0 1-2.058 2.057l-9.276-9.276a1.455 1.455 0 0 1 2.057-2.057z" fill="currentColor"/></svg>
@@ -566,7 +574,7 @@ export default function SettingsPage() {
                     </div>
                     {process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID ? (
                       <a
-                        href={`https://sentry.io/oauth/authorize/?client_id=${process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/sentry/callback`)}&response_type=code&scope=org:read%20event:read%20project:read`}
+                        href={`https://sentry.io/oauth/authorize/?client_id=${process.env.NEXT_PUBLIC_SENTRY_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${origin}/settings/sentry/callback`)}&response_type=code&scope=org:read%20event:read%20project:read&state=${createOAuthState("sentry")}`}
                         className="w-full bg-[#362D59] hover:bg-[#362D59]/90 text-white font-medium py-2 rounded-lg transition-all text-sm flex items-center justify-center gap-2"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.583 0A12.067 12.067 0 000 11.233a11.95 11.95 0 001.077 5.093l4.78-2.617a6.386 6.386 0 01-.422-2.316C5.435 7.917 8.358 5 11.85 5a6.417 6.417 0 016.416 6.415c0 3.518-2.893 6.393-6.416 6.415a6.31 6.31 0 01-3.66-.11l-3.327 3.542A11.758 11.758 0 0011.83 23c6.643 0 12.05-5.367 12.05-11.95C23.88 4.484 18.237 0 11.583 0z" fill="currentColor"/></svg>

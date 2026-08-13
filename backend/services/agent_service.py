@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -8,7 +9,7 @@ from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain.memory import ConversationBufferWindowMemory
 
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from config import settings
 from logger import get_logger
 
@@ -72,7 +73,38 @@ chat_prompt = ChatPromptTemplate.from_messages([
 sql_plan_chain = sql_plan_prompt | llm_json | JsonOutputParser()
 synthesis_chain = synthesis_prompt | llm | StrOutputParser()
 
-_memories: dict[str, ConversationBufferWindowMemory] = {}
+# Per-user SQL planner chains, built from that user's own Coral catalogue.
+# Previously a single module-global chain was reassigned by init_schema(),
+# so whichever user connected last dictated the schema every other user's
+# chat was planned against — a cross-tenant information leak.
+_user_sql_plan_chains: dict[int, object] = {}
+
+# Conversation memory, keyed by (user_id, session_id). Keying on the
+# client-supplied session_id alone let two users sharing an id — the default
+# is the literal "default" — read each other's conversation context.
+_memories: dict[tuple[int, str], ConversationBufferWindowMemory] = {}
+
+
+def _utcnow_iso() -> str:
+    """Naive UTC ISO-8601 timestamp.
+
+    Same output shape as the previous ``datetime.utcnow().isoformat()``;
+    ``utcnow`` is deprecated from Python 3.12 onwards.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _sql_literal(value):
+    """Escape a value for safe interpolation into a single-quoted SQL literal.
+
+    Coral's MCP `sql` tool accepts one SQL string and exposes no bind-parameter
+    channel, so workflow templates interpolate variables textually
+    (``WHERE team_key = '{team_name}'``). Doubling embedded single quotes is
+    the standard SQL escape and leaves every legitimate value byte-identical.
+    """
+    if isinstance(value, str):
+        return value.replace("'", "''")
+    return value
 
 def get_workflow_queries(workflow: str) -> list[dict]:
     owner = "wemakedev"
@@ -169,10 +201,15 @@ def get_workflow_queries(workflow: str) -> list[dict]:
     return workflows.get(workflow, standup)
 
 
-async def init_schema():
-    """Discover actual Coral schema and rebuild prompts."""
-    global sql_plan_chain
+def _get_sql_plan_chain(user_id: int):
+    """Return this user's schema-aware planner chain, or the static default."""
+    return _user_sql_plan_chains.get(user_id, sql_plan_chain)
+
+
+async def init_schema(user_id: int):
+    """Discover the user's Coral schema and build their planner prompt."""
     try:
+        coral = await coral_manager.get_service(user_id)
         columns = await coral.query(
             "SELECT schema_name, table_name, column_name "
             "FROM coral.columns ORDER BY schema_name, table_name, column_name"
@@ -201,13 +238,15 @@ Output format (JSON array only, no markdown):
             ("human", "Question: {question}"),
         ])
         
-        sql_plan_chain = new_prompt | llm_json | JsonOutputParser()
-        log.info("Schema discovery OK: %d tables", len(tables))
+        _user_sql_plan_chains[user_id] = new_prompt | llm_json | JsonOutputParser()
+        log.info("Schema discovery OK for user %s: %d tables", user_id, len(tables))
     except Exception as e:
-        log.warning("Schema discovery failed, using defaults: %s", e)
+        log.warning("Schema discovery failed for user %s, using defaults: %s", user_id, e)
 
 
-async def _execute_coral_queries(queries: list[dict]) -> dict:
+async def _execute_coral_queries(queries: list[dict], user_id: int) -> dict:
+    coral = await coral_manager.get_service(user_id)
+    
     async def run_one(q: dict):
         try:
             result = await coral.query(q["sql"])
@@ -221,9 +260,9 @@ async def _execute_coral_queries(queries: list[dict]) -> dict:
     return dict(results)
 
 
-async def generate_report(workflow: str = "standup") -> dict:
+async def generate_report(workflow: str, user_id: int) -> dict:
     queries = get_workflow_queries(workflow)
-    raw_data = await _execute_coral_queries(queries)
+    raw_data = await _execute_coral_queries(queries, user_id)
 
     if workflow == "standup":
         system_instructions = "Act as a Scrum Master. Review this data and generate a quick standup agenda. Highlight who is blocked, which PRs need immediate review, and if any new production errors need to be assigned today. Produce: 1) Executive Summary 2) Blockers 3) PRs to Review 4) Urgent Errors."
@@ -250,27 +289,28 @@ async def generate_report(workflow: str = "standup") -> dict:
     return {
         "report": report_text,
         "raw_data": raw_data,
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+        "generated_at": _utcnow_iso(),
         "workflow": workflow
     }
 
 
-def _get_memory(session_id: str) -> ConversationBufferWindowMemory:
-    if session_id not in _memories:
-        _memories[session_id] = ConversationBufferWindowMemory(
+def _get_memory(user_id: int, session_id: str) -> ConversationBufferWindowMemory:
+    key = (user_id, session_id)
+    if key not in _memories:
+        _memories[key] = ConversationBufferWindowMemory(
             k=10, return_messages=True, memory_key="history"
         )
-    return _memories[session_id]
+    return _memories[key]
 
 
-async def stream_chat_response(question: str, session_id: str) -> AsyncGenerator[dict, None]:
-    queries = await sql_plan_chain.ainvoke({"question": question})
+async def stream_chat_response(question: str, session_id: str, user_id: int) -> AsyncGenerator[dict, None]:
+    queries = await _get_sql_plan_chain(user_id).ainvoke({"question": question})
     yield {"event": "queries", "data": [q["sql"] for q in queries]}
 
     yield {"event": "status", "data": "Executing Coral queries..."}
-    coral_data = await _execute_coral_queries(queries)
+    coral_data = await _execute_coral_queries(queries, user_id)
 
-    memory = _get_memory(session_id)
+    memory = _get_memory(user_id, session_id)
     history = memory.load_memory_variables({})["history"]
     chain = chat_prompt | llm | StrOutputParser()
     full_response = ""
@@ -287,24 +327,37 @@ async def stream_chat_response(question: str, session_id: str) -> AsyncGenerator
     yield {"event": "done", "data": ""}
 
 
-async def get_source_status(source_name: str) -> str:
-    import db.database as database
-    conn = database.db
-    if conn is None:
+# Token keys that indicate a given source is configured for a user.
+_SOURCE_TOKEN_KEYS = {
+    "github": "GITHUB_TOKEN",
+    "linear": "LINEAR_API_KEY",
+    "sentry": "SENTRY_TOKEN",
+    "slack": "SLACK_TOKEN",
+}
+
+
+async def get_source_status(source_name: str, user_id: int) -> str:
+    """Return this user's connection status for a source.
+
+    Derived from the caller's own stored tokens rather than the shared
+    `coral_sources` table. That table holds one row per source for the whole
+    deployment, so reading it here meant one user's disconnected integration
+    blocked every other user's workflows (and vice versa).
+    """
+    token_key = _SOURCE_TOKEN_KEYS.get(source_name)
+    if not token_key:
         return "UNKNOWN"
     try:
-        async with conn.execute(
-            "SELECT status FROM coral_sources WHERE source_name = ?", (source_name,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return row["status"]
+        from routers.settings import get_user_tokens
+        tokens = await get_user_tokens(user_id)
+        return "CONNECTED" if tokens.get(token_key) else "DISCONNECTED"
     except Exception as e:
-        log.warning("Failed to query coral_sources status: %s", e)
+        log.warning("Failed to resolve source status for %s: %s", source_name, e)
     return "UNKNOWN"
 
 
-async def run_workflow_template(template: dict, payload: dict) -> dict:
+async def run_workflow_template(template: dict, payload: dict, user_id: int) -> dict:
+    coral = await coral_manager.get_service(user_id)
     resolved_vars = {}
     variables = payload.get("variables", {})
     custom_queries = payload.get("custom_queries", template.get("queries", []))
@@ -356,9 +409,9 @@ async def run_workflow_template(template: dict, payload: dict) -> dict:
 
 
     # 2.5 Validation of variables based on active source health and authorized credentials
-    github_status = await get_source_status("github")
-    slack_status = await get_source_status("slack")
-    linear_status = await get_source_status("linear")
+    github_status = await get_source_status("github", user_id)
+    slack_status = await get_source_status("slack", user_id)
+    linear_status = await get_source_status("linear", user_id)
 
     # A. Validate GitHub parameters if required by this template (hasowner or repo)
     owner = resolved_vars.get("owner")
@@ -488,8 +541,11 @@ async def run_workflow_template(template: dict, payload: dict) -> dict:
         q_id = q["id"]
         sql_template = q["sql"]
         try:
-            # Substitute resolved variables
-            sql = sql_template.format(**resolved_vars)
+            # Substitute resolved variables. Values are escaped for SQL string
+            # literals first — `resolved_vars` originates from the client
+            # payload, and templates interpolate it inside quoted literals.
+            safe_vars = {k: _sql_literal(v) for k, v in resolved_vars.items()}
+            sql = sql_template.format(**safe_vars)
             rows = await coral.query(sql)
             raw_data[q_id] = rows
         except Exception as e:
@@ -505,9 +561,16 @@ async def run_workflow_template(template: dict, payload: dict) -> dict:
     # 3.5 Post-process Slack mentions in raw_data
     import re
     
+    # Coral can return a bare string instead of a row list (see
+    # CoralService._parse_result), so only walk results that are row dicts.
+    def _row_dicts(rows):
+        if not isinstance(rows, list):
+            return []
+        return [r for r in rows if isinstance(r, dict)]
+
     mentioned_users = set()
     for rows in raw_data.values():
-        for row in rows:
+        for row in _row_dicts(rows):
             for val in row.values():
                 if isinstance(val, str):
                     matches = re.findall(r'<@([A-Z0-9]+)>', val)
@@ -524,7 +587,7 @@ async def run_workflow_template(template: dict, payload: dict) -> dict:
         user_map = {}
 
     for rows in raw_data.values():
-        for row in rows:
+        for row in _row_dicts(rows):
             for key, val in row.items():
                 if isinstance(val, str):
                     def replacer(match):
@@ -574,12 +637,11 @@ Here is the retrieved dataset for analysis:
     else:
         report_text = "No AI persona defined for this template."
 
-    import datetime
     return {
         "raw_data": raw_data,
         "synthesis": report_text,
         "ui_layout": template.get("ui_layout", {}),
         "variables": resolved_vars,
-        "generated_at": datetime.datetime.utcnow().isoformat()
+        "generated_at": _utcnow_iso()
     }
 

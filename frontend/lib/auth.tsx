@@ -56,9 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedToken && savedUser) {
       setToken(savedToken);
       setUser(JSON.parse(savedUser));
-      // Validate token is still good
+      // Validate token is still good.
+      // The token goes in the third argument (header); passing it as the
+      // second put it in the query string, leaking the JWT into access logs.
       api
-        .get("/api/auth/me", { Authorization: `Bearer ${savedToken}` })
+        .get("/api/auth/me", undefined, savedToken)
         .then((data) => {
           setUser(data);
           localStorage.setItem(USER_KEY, JSON.stringify(data));

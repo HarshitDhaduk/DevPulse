@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 import db.database as database
-from services.coral_service import coral
+from services.coral_service import coral_manager
 from services.auth import get_current_user
 from logger import get_logger
 
@@ -33,7 +33,7 @@ async def _sync_source_status(name: str, status: str, error: str | None = None):
 
 
 @router.get("/sources")
-async def get_sources():
+async def get_sources(user: dict = Depends(get_current_user)):
     """Return current source status from DB (fast, no live probe)."""
     conn = database.db
     if conn is None:

@@ -128,11 +128,43 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const sessionId = useRef(`session-${Date.now()}`);
+  // Date.now() alone is millisecond-granular and collides across concurrent
+  // users; the backend keys chat memory and chat_sessions on this value.
+  // Generated lazily on first use so no impure call happens during render.
+  const sessionIdRef = useRef<string | null>(null);
+  const getSessionId = () => {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? `session-${crypto.randomUUID()}`
+          : `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return sessionIdRef.current;
+  };
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { streamMessage } = useChat();
 
   const monaco = useMonaco();
+  const approvalDialogRef = useRef<HTMLDivElement>(null);
+  const approvalTriggerRef = useRef<HTMLElement | null>(null);
+
+  // Query-approval dialog: move focus in on open, close on Escape, and put
+  // focus back on whatever opened it. Without this a keyboard or screen-reader
+  // user stays stranded on the page behind the overlay.
+  useEffect(() => {
+    if (!showQueryApproval) return;
+    approvalTriggerRef.current = document.activeElement as HTMLElement | null;
+    approvalDialogRef.current?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowQueryApproval(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      approvalTriggerRef.current?.focus?.();
+    };
+  }, [showQueryApproval]);
 
   useEffect(() => {
     if (monaco) {
@@ -241,7 +273,12 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    chatEndRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
   }, [chatMessages]);
 
   // Replay: load historical run data if ?run= is in the URL
@@ -303,19 +340,13 @@ function WorkspacePageInner({ params }: { params: Promise<{ id: string }> }) {
     setError(null);
     setRunResult(null);
 
-    // Multi-step loading sequence to wow the user
-    const steps = [
-      "Establishing connection to Coral Federated engine...",
-      "Resolving dynamic variables and discovery fallbacks...",
-      `Running ${customQueries.length} federated SQL queries in parallel...`,
-      "Formatting Coral row results...",
-      "Feeding datasets to Gemini for analysis...",
-      "Compiling UI Layout components..."
-    ];
+    // Multi-step loading sequence to wow the user.
+    // The copy lives in the render below; this only advances the index.
+    const TOTAL_LOADING_STEPS = 6;
 
     setLoadingStep(0);
     const interval = setInterval(() => {
-      setLoadingStep((s) => Math.min(s + 1, steps.length - 1));
+      setLoadingStep((s) => Math.min(s + 1, TOTAL_LOADING_STEPS - 1));
     }, 1200);
 
     try {
@@ -356,7 +387,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
     let agentResponse = "";
     setChatMessages((m) => [...m, { role: "agent", content: "" }]);
 
-    streamMessage(msg, sessionId.current, {
+    streamMessage(msg, getSessionId(), {
       onQueries: () => {},
       onToken: (t) => {
         agentResponse += t;
@@ -452,6 +483,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                     const hasRepos = discovery?.github_repos && discovery.github_repos.length > 0;
                     return (
                       <select
+                        id={`wf-var-${v.name}`}
                         value={variables["repo"] && variables["owner"] ? `${variables["owner"]}/${variables["repo"]}` : ""}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -475,6 +507,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                   if (v.name === "owner" && integrations?.has_github) {
                     return (
                       <input
+                        id={`wf-var-${v.name}`}
                         type="text"
                         value={variables["owner"] ?? ""}
                         readOnly
@@ -488,6 +521,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                     const hasChannels = discovery?.slack_channels && discovery.slack_channels.length > 0;
                     return (
                       <select
+                        id={`wf-var-${v.name}`}
                         value={variables[v.name] ?? ""}
                         onChange={(e) => handleVariableChange(v.name, e.target.value)}
                         className="rounded-lg border border-border2 bg-bg2 px-3 py-2 text-xs outline-none focus:border-teal transition-colors text-text"
@@ -505,6 +539,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
                     const hasTeams = discovery?.linear_teams && discovery.linear_teams.length > 0;
                     return (
                       <select
+                        id={`wf-var-${v.name}`}
                         value={variables[v.name] ?? ""}
                         onChange={(e) => handleVariableChange(v.name, e.target.value)}
                         className="rounded-lg border border-border2 bg-bg2 px-3 py-2 text-xs outline-none focus:border-teal transition-colors text-text"
@@ -520,6 +555,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
                   return (
                     <input
+                      id={`wf-var-${v.name}`}
                       type={v.type === "integer" ? "number" : "text"}
                       value={variables[v.name] ?? ""}
                       onChange={(e) => handleVariableChange(v.name, v.type === "integer" ? Number(e.target.value) : e.target.value)}
@@ -532,7 +568,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
                 return (
                   <div key={v.name} className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-bold font-mono text-text3 uppercase tracking-wider">{v.name}</label>
+                    <label htmlFor={`wf-var-${v.name}`} className="text-[10px] font-bold font-mono text-text3 uppercase tracking-wider">{v.name}</label>
                     {renderField()}
                   </div>
                 );
@@ -543,7 +579,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
       )}
       {/* Inline Error Alert Banner */}
       {error && !loading && (
-        <div className="shrink-0 border-b border-border bg-coral/5 p-4 flex items-start gap-3 text-xs text-coral">
+        <div role="alert" className="shrink-0 border-b border-border bg-coral/5 p-4 flex items-start gap-3 text-xs text-coral">
           <span className="text-sm">⚠️</span>
           <div className="space-y-1">
             <h4 className="font-bold">Workspace Telemetry Error</h4>
@@ -554,14 +590,25 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
       {/* Query Approval Modal */}
       {showQueryApproval && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-4xl max-h-full flex flex-col bg-bg1 border border-border rounded-xl shadow-2xl overflow-hidden">
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"
+          onClick={() => setShowQueryApproval(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="query-approval-title"
+            ref={approvalDialogRef}
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-4xl max-h-full flex flex-col bg-bg1 border border-border rounded-xl shadow-2xl overflow-hidden"
+          >
             <div className="flex items-center justify-between border-b border-border p-4 bg-bg2">
               <div>
-                <h3 className="text-sm font-bold text-text">Review SQL Queries</h3>
+                <h3 id="query-approval-title" className="text-sm font-bold text-text">Review SQL Queries</h3>
                 <p className="text-xs text-text3 mt-1">Review or modify the queries DevPulse will execute against the Coral Federated Engine.</p>
               </div>
-              <button onClick={() => setShowQueryApproval(false)} className="text-text3 hover:text-text font-bold text-xl">&times;</button>
+              <button type="button" aria-label="Close query review dialog" onClick={() => setShowQueryApproval(false)} className="text-text3 hover:text-text font-bold text-xl">&times;</button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-bg1">
               {customQueries.map((q, idx) => (
@@ -597,7 +644,7 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
       {/* Loading State Overlay */}
       {loading && (
-        <div className="flex-1 flex flex-col items-center justify-center bg-bg1 space-y-6">
+        <div role="status" aria-live="polite" className="flex-1 flex flex-col items-center justify-center bg-bg1 space-y-6">
           <div className="relative flex items-center justify-center">
             <div className="h-16 w-16 rounded-full border-4 border-teal/10 border-t-teal animate-spin" />
             <span className="absolute text-2xl">{spec.icon}</span>
@@ -721,7 +768,11 @@ I've successfully fetched the SQL tables from Coral and analyzed the data. Let m
 
             {/* Chat Input */}
             <div className="shrink-0 border-t border-border p-3 bg-bg3 flex gap-2">
+              <label htmlFor="workspace-chat-input" className="sr-only">
+                Ask the AI assistant about this data
+              </label>
               <input
+                id="workspace-chat-input"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendChatMessage()}

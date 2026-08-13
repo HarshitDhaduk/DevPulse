@@ -7,25 +7,33 @@ from logger import get_logger
 import json
 import time
 import httpx
-from routers.settings import _get_user_setting, _set_user_setting, inject_user_tokens
-from services.coral_service import coral
+from routers.settings import _get_user_setting, _set_user_setting, get_user_tokens
+from services.coral_service import coral_manager
 from config import settings
 
 log = get_logger("devpulse.scheduler")
 
 
 async def run_daily_report():
-    log.info("Generating daily engineering health report...")
+    log.info("Generating daily engineering health report for all users...")
     try:
-        report = await generate_report()
-        await database.db.execute(
-            "INSERT INTO reports (content, raw_data, generated_at, trigger) VALUES (?, ?, ?, 'scheduled')",
-            (report["report"], json.dumps(report["raw_data"]), report["generated_at"]),
-        )
-        await database.db.commit()
-        log.info("Daily report saved successfully")
+        async with database.db.execute("SELECT id FROM users") as cursor:
+            users = await cursor.fetchall()
+            
+        for user in users:
+            user_id = user["id"]
+            try:
+                report = await generate_report("standup", user_id)
+                await database.db.execute(
+                    "INSERT INTO reports (content, raw_data, generated_at, trigger, user_id) VALUES (?, ?, ?, 'scheduled', ?)",
+                    (report["report"], json.dumps(report["raw_data"]), report["generated_at"], user_id),
+                )
+                await database.db.commit()
+                log.info("Daily report saved successfully for user %s", user_id)
+            except Exception as e:
+                log.error("Daily report failed for user %s: %s", user_id, e)
     except Exception as e:
-        log.error("Daily report failed: %s", e)
+        log.error("Daily report job failed: %s", e)
 
 
 async def auto_renew_tokens():
@@ -101,12 +109,11 @@ async def auto_renew_tokens():
                         if expires_in:
                             await _set_user_setting(user_id, f"{prefix}_EXPIRES_AT", str(int(now + expires_in)))
                             
-                        # Inject new token to environment and restart Coral
-                        inject_user_tokens({token_key: access_token})
-                        await coral.stop()
-                        await coral.start()
+                        # Update Coral with new token
+                        tokens = await get_user_tokens(user_id)
+                        await coral_manager.restart_service(user_id, tokens)
                         from services.agent_service import init_schema
-                        await init_schema()
+                        await init_schema(user_id)
                         log.info("%s token auto-renewed for user %s and Coral restarted.", prefix, user_id)
                     else:
                         error_msg = data.get("error_description") or data.get("error")

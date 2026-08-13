@@ -57,7 +57,7 @@ export function Sidebar() {
   const { user, signOut } = useAuth();
 
   return (
-    <aside className="w-56 shrink-0 border-r border-border bg-bg flex flex-col">
+    <aside aria-label="Primary" className="w-56 shrink-0 border-r border-border bg-bg flex flex-col">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-border">
         <Link href="/" className="flex items-center gap-2 group">
@@ -69,7 +69,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-3 space-y-0.5">
+      <nav aria-label="Main navigation" className="flex-1 p-3 space-y-0.5">
         <p className="text-[10px] font-semibold text-text3 uppercase tracking-widest px-3 py-2 font-mono">
           Navigation
         </p>
@@ -79,6 +79,7 @@ export function Sidebar() {
             <Link
               key={l.href}
               href={l.href}
+              aria-current={active ? "page" : undefined}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                 active
                   ? "bg-coral/15 text-coral border border-coral/25"
@@ -117,6 +118,7 @@ export function Sidebar() {
               </div>
             </div>
             <button
+              type="button"
               onClick={signOut}
               className="w-full text-[10px] text-text3 hover:text-coral transition-colors font-mono py-1 rounded hover:bg-coral/5"
             >

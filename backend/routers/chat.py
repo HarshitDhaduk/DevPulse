@@ -1,25 +1,35 @@
 import json
 import asyncio
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import StreamingResponse
 from services.agent_service import stream_chat_response
+from services.auth import get_current_user
 from logger import get_logger
 
 log = get_logger("devpulse.chat")
 router = APIRouter()
 
 
-async def _ensure_session(session_key: str) -> int:
-    """Get or create a chat_session row and return the session id."""
+async def _ensure_session(session_key: str, user_id: int) -> int:
+    """Get or create this user's chat_session row and return the session id.
+
+    Scoped by user_id: session_key comes from the client and is UNIQUE across
+    the table, so an unscoped lookup would attach one user's messages to
+    another user's session whenever the keys collided.
+    """
     from db.database import db
+    # Namespace the stored key so two users can independently use the same
+    # client-side session id without colliding on the UNIQUE constraint.
+    scoped_key = f"u{user_id}:{session_key}"
     row = await db.execute_fetchall(
-        "SELECT id FROM chat_sessions WHERE session_key = ?", (session_key,)
+        "SELECT id FROM chat_sessions WHERE session_key = ? AND user_id = ?",
+        (scoped_key, user_id),
     )
     if row:
         return row[0]["id"]
     cursor = await db.execute(
-        "INSERT INTO chat_sessions (session_key, title) VALUES (?, ?)",
-        (session_key, "Workspace Chat"),
+        "INSERT INTO chat_sessions (session_key, user_id, title) VALUES (?, ?, ?)",
+        (scoped_key, user_id, "Workspace Chat"),
     )
     await db.commit()
     return cursor.lastrowid
@@ -39,14 +49,14 @@ async def _save_message(session_id: int, run_id: int | None, role: str, content:
         log.error("Failed to save chat message: %s", e)
 
 
-async def sse_generator(question: str, session_id: str, run_id: int | None):
+async def sse_generator(question: str, session_id: str, run_id: int | None, user_id: int):
     # Persist the user message
-    db_session_id = await _ensure_session(session_id)
+    db_session_id = await _ensure_session(session_id, user_id)
     await _save_message(db_session_id, run_id, "user", question)
 
     agent_response = ""
     try:
-        async for event in stream_chat_response(question, session_id):
+        async for event in stream_chat_response(question, session_id, user_id):
             # Accumulate agent response text
             if event["event"] == "token":
                 agent_response += event["data"]
@@ -74,9 +84,10 @@ async def chat_stream(
     q: str = Query(...),
     session_id: str = Query(default="default"),
     run_id: int | None = Query(default=None),
+    user: dict = Depends(get_current_user)
 ):
     return StreamingResponse(
-        sse_generator(q, session_id, run_id),
+        sse_generator(q, session_id, run_id, user["id"]),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
